@@ -1,2 +1,6 @@
 gymnasium
 BetterDebugging
+matplotlib
+pettingzoo
+torch
+stable_baselines3

@@ -151,8 +151,8 @@ class MultiAgentGridWorldEnvironment(gym.Env):
                 
                 if not agent_collision:
                     self.agent_locations[i] = new_location
-                else:
-                    rewards[i] = -0.1  # Penalty for agent collision
+                #else:
+                    #rewards[i] = -0.1  # Penalty for agent collision
             else:
                 wall_collision = True
                 rewards[i] = -0.1  # Penalty for wall collision

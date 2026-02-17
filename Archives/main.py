@@ -1,7 +1,7 @@
 import numpy as np
 import time
-from Environment.environment import GridWorldEnvironment
-from Environment import Maps  # your preset map file
+import matplotlib.pyplot as plt
+from LoggerConfig import log
 
 # ---------------------------------------------
 # Q-Learning parameters
@@ -9,10 +9,10 @@ from Environment import Maps  # your preset map file
 alpha = 0.1          # Learning rate
 gamma = 0.95         # Discount factor
 epsilon = 0.1        # Exploration rate
-episodes = 1000       # Number of episodes
-max_steps = 200      # Max steps per episode
-render_every = 100    # Render every X episodes
-render_training = True  # Set to True to render during training, False for evaluation only
+episodes = 2500       # Number of episodes
+max_steps = 250      # Max steps per episode
+render_every = 1000    # Render every X episodes
+render_training = False  # Set to True to render during training, False for evaluation only
 
 # ---------------------------------------------
 # Initialize environment
@@ -23,6 +23,9 @@ grid_size = env.grid_size
 
 # Q-table: one value per (row, col, action)
 Q = np.zeros((grid_size, grid_size, n_actions))
+
+# Track episode rewards
+episode_rewards = []
 
 # ---------------------------------------------
 # Training loop
@@ -64,6 +67,8 @@ for episode in range(episodes):
         if terminated:
             break
 
+    episode_rewards.append(total_reward)
+    
     if (episode + 1) % 50 == 0:
         print(f"Episode {episode+1}/{episodes} - Total reward: {total_reward:.2f}")
 
@@ -87,3 +92,19 @@ for step in range(50):
         break
 
 env.close()
+
+# Plot episode rewards
+plt.figure(figsize=(10, 6))
+plt.plot(episode_rewards, alpha=0.6, label='Episode Rewards')
+
+# Calculate and plot moving average
+window_size = int(episodes / 100)
+moving_avg = np.convolve(episode_rewards, np.ones(window_size)/window_size, mode='valid')
+plt.plot(range(window_size-1, len(episode_rewards)), moving_avg, 'r-', linewidth=2, label=f'Moving Average ({window_size} episodes)')
+
+plt.title('Q-Learning Episode Rewards Over Time', fontsize=24)
+plt.xlabel('Episode', fontsize=20)
+plt.ylabel('Total Reward', fontsize=20)
+plt.legend()
+plt.grid(True)
+plt.show()

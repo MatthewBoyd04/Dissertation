@@ -1,5 +1,6 @@
 import numpy as np
 import time
+import matplotlib.pyplot as plt
 from Environment.multi_agent_environment import MultiAgentGridWorldEnvironment
 from Environment import Maps
 
@@ -7,10 +8,10 @@ from Environment import Maps
 alpha = 0.1
 gamma = 0.95
 epsilon = 0.2
-episodes = 10000
-max_steps = 200
+episodes = 2500
+max_steps = 250
 render_every = 1000
-render_training = True
+render_training = False
 
 # Initialize multi-agent environment with 3 rewards
 env = MultiAgentGridWorldEnvironment(grid_size=9, preset_map=Maps.PRESET_MAP_2, num_rewards=3)
@@ -23,14 +24,17 @@ Q_agents = [
     np.zeros((grid_size, grid_size, n_actions))   # Agent 2
 ]
 
+# Track episode rewards for both agents
+episode_rewards_agent1 = []
+episode_rewards_agent2 = []
+
 # Training loop
 for episode in range(episodes):
     observations, info = env.reset()
     states = [tuple(env.agent_locations[0]), tuple(env.agent_locations[1])]
     total_rewards = [0, 0]
     
-    if render_training and episode % render_every == 0:
-        print(f"\n--- Episode {episode + 1}/{episodes} ---")
+
 
     for step in range(max_steps):
         if render_training and episode % render_every == 0:
@@ -62,7 +66,11 @@ for episode in range(episodes):
         states = next_states
         
         # Continue running - no termination
-    if render_training and episode % render_every == 0:
+    
+    episode_rewards_agent1.append(total_rewards[0])
+    episode_rewards_agent2.append(total_rewards[1])
+    
+    if (episode + 1) % 50 == 0:
         print(f"Episode {episode+1}/{episodes} - Agent 1 reward: {total_rewards[0]:.2f}, Agent 2 reward: {total_rewards[1]:.2f}")
 
 # Evaluation
@@ -95,3 +103,36 @@ for step in range(100):
         break
 
 env.close()
+
+# Calculate average rewards per episode
+average_rewards = [(r1 + r2) / 2 for r1, r2 in zip(episode_rewards_agent1, episode_rewards_agent2)]
+window_size = int(episodes / 100)
+
+# Create subplots
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
+
+# Plot individual agents
+ax1.plot(episode_rewards_agent1, alpha=0.6, label='Agent 1 Rewards')
+ax1.plot(episode_rewards_agent2, alpha=0.6, label='Agent 2 Rewards')
+moving_avg_agent1 = np.convolve(episode_rewards_agent1, np.ones(window_size)/window_size, mode='valid')
+moving_avg_agent2 = np.convolve(episode_rewards_agent2, np.ones(window_size)/window_size, mode='valid')
+ax1.plot(range(window_size-1, len(episode_rewards_agent1)), moving_avg_agent1, 'r-', linewidth=2, label=f'Agent 1 Moving Average ({window_size} episodes)')
+ax1.plot(range(window_size-1, len(episode_rewards_agent2)), moving_avg_agent2, 'b-', linewidth=2, label=f'Agent 2 Moving Average ({window_size} episodes)')
+ax1.set_title('Individual Agent Rewards Over Time', fontsize=24)
+ax1.set_xlabel('Episode', fontsize=20)
+ax1.set_ylabel('Total Reward', fontsize=20)
+ax1.legend()
+ax1.grid(True)
+
+# Plot average rewards
+ax2.plot(average_rewards, alpha=0.6, label='Average Rewards', color='green')
+moving_avg_average = np.convolve(average_rewards, np.ones(window_size)/window_size, mode='valid')
+ax2.plot(range(window_size-1, len(average_rewards)), moving_avg_average, 'g-', linewidth=2, label=f'Average Moving Average ({window_size} episodes)')
+ax2.set_title('Average Agent Rewards Over Time', fontsize=24)
+ax2.set_xlabel('Episode', fontsize=20)
+ax2.set_ylabel('Average Total Reward', fontsize=20)
+ax2.legend()
+ax2.grid(True)
+
+plt.tight_layout()
+plt.show()
