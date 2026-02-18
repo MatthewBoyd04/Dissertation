@@ -9,10 +9,11 @@ from Maps import map_15x15, map_30x30, map_45x45
 agents = ["Drone_1", "Drone_2", "Drone_3", "Drone_4"]
 map_data = np.array([[0]*15 for _ in range(15)])
 env = GridWorldEnvironment(
-    mapPreset=map_15x15, 
+    mapPreset=map_30x30, 
     agents=agents, 
     maxCycles=100, 
     visionRange=2,
+    render_every=500
     )
 
 models = {}

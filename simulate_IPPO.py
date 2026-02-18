@@ -9,7 +9,7 @@ from Maps import map_15x15, map_30x30, map_45x45
 agents = ["Drone_1", "Drone_2", "Drone_3", "Drone_4"]
 
 # Map for evaluation
-map_data = map_15x15
+map_data = map_45x45
 
 # Create environment (make sure render_every=None or controlled)
 env = GridWorldEnvironment(mapPreset=map_data, agents=agents, maxCycles=100, visionRange=2, render_every=1)
