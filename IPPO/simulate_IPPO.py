@@ -13,6 +13,9 @@ from LoggerConfig import log
  # Agent names
 agents = ["Drone_1", "Drone_2", "Drone_3", "Drone_4"]
 
+# Get IPPO directory path
+ippo_dir = os.path.dirname(os.path.abspath(__file__))
+
 # Map for evaluation
 map_data = map_30x30
 
@@ -33,7 +36,7 @@ def runSimulations(simulations = 100, timeStepsRan = 0):
         # Load trained models
         models = {}
         for agent in agents:
-            models[agent] = PPO.load(f"{agent}_ppo_model")
+            models[agent] = PPO.load(os.path.join(ippo_dir, f"{agent}_ppo_model"))
 
         #Anaysis Variables
         analysisList = []
@@ -92,7 +95,7 @@ def runSimulations(simulations = 100, timeStepsRan = 0):
         log.i(f"Average analysis score: {avg_score:.4f}")
 
         # Write to CSV - append mode
-        csv_filename = f"{map_name}_analysis_Results.csv"
+        csv_filename = os.path.join(ippo_dir, f"{map_name}_analysis_Results.csv")
         file_exists = False
         try:
             with open(csv_filename, 'r'):

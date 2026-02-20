@@ -6,13 +6,17 @@ from LoggerConfig import log
 from Environment import GridWorldEnvironment
 from IPPO.train_IPPO import trainAgents
 from IPPO.simulate_IPPO import runSimulations
+from PlotAnalysis import plotAnalysisData
 import json
 
-timesteps_per_iteration = 100_000
-total_iterations = 20
+timesteps_per_iteration = 50_000
+total_iterations = 1000
+
+# Get IPPO directory path
+ippo_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Load or initialize progress tracker
-progress_file = "training_progress.json"
+progress_file = os.path.join(ippo_dir, "training_progress.json")
 if os.path.exists(progress_file):
     with open(progress_file, 'r') as f:
         progress = json.load(f)
@@ -29,10 +33,15 @@ for iteration in range(start_iteration, total_iterations):
     log.i(f"\n=== Iteration {iteration + 1}/{total_iterations} ===")
     
     # Train
-    trainAgents(timesteps_per_iteration)
+    trainAgents(timesteps_per_iteration, parallel=False)
     
     # Simulate and analyze
     runSimulations(simulations=100, timeStepsRan=current_timesteps)
+    
+    # Plot analysis data for all maps
+    plotAnalysisData(os.path.join(ippo_dir, "map_15x15_analysis_Results.csv"))
+    plotAnalysisData(os.path.join(ippo_dir, "map_30x30_analysis_Results.csv"))
+    plotAnalysisData(os.path.join(ippo_dir, "map_45x45_analysis_Results.csv"))
     
     # Save progress
     total_timesteps_so_far = current_timesteps
