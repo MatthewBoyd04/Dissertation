@@ -6,7 +6,7 @@ import numpy as np
 
 #Helpers
 from LoggerConfig import log
-from graphics import GraphWin, Rectangle, Point
+from graphics import GraphWin, Rectangle, Point, Image
 import time
 
 #Testing Only
@@ -47,8 +47,20 @@ class GridWorldEnvironment(ParallelEnv):
         self.render_enabled = False
         self.window = None
         self.static_drawn = False
-        self.tile_rects = None
+        self.tile_images = None
+
+        self.static_tiles = None
+        self.discovered_overlays = None
+
         self.agent_drawings = {}
+        self.sprite_cache = {}
+        self.previous_positions = {}
+        self.discovered_drawn = None
+
+        self.fog_tiles = None
+
+        #Analysis Variables
+        self.reward_found = False
 
         #Agent Variables
         self.possible_agents = agents
@@ -67,7 +79,7 @@ class GridWorldEnvironment(ParallelEnv):
             agent: spaces.Box(
                 low=0.0,
                 high=1.0,
-                shape=(4, obs_size, obs_size),
+                shape=(5, obs_size, obs_size),  # Added 5th channel for rewards
                 dtype=np.float32
             )
             for agent in self.possible_agents
@@ -81,6 +93,20 @@ class GridWorldEnvironment(ParallelEnv):
         self.step_count = 0
         self.agents = self.possible_agents[:]
         self.discovered = np.zeros_like(self.grid, dtype=bool)
+
+
+
+        # Clean up rendering resources for new episode
+        if self.render_enabled:
+            for agent_img in self.agent_drawings.values():
+                try:
+                    agent_img.undraw()
+                except:
+                    pass
+        
+        self.agent_drawings = {}
+        self.previous_positions = {}
+        self.static_drawn = False
     
         # Rendering decision
         self.render_enabled = (
@@ -88,10 +114,8 @@ class GridWorldEnvironment(ParallelEnv):
             self.episode_count % self.render_every == 0
         )
 
-        # If a new render episode starts, force full redraw
-        if self.render_enabled:
-            self.static_drawn = False
-
+        #Analysis Variables:
+        self.reward_found = False
         #TO-DO - Add in the option to change starting position based on drone count, for now 4 drones is assumed. 
         
         # Initialize agent positions
@@ -104,6 +128,9 @@ class GridWorldEnvironment(ParallelEnv):
             "Drone_3": [mid_idx, max_idx],
             "Drone_4": [max_idx, mid_idx]
         }
+
+        # Place random reward tile
+        self._place_random_reward()
 
         # Mark initial discovered tiles
         for agent in self.agents:
@@ -120,7 +147,7 @@ class GridWorldEnvironment(ParallelEnv):
     def step(self, actions):
         self.step_count += 1
 
-        rewards = {agent: -0.1 for agent in self.agents}  # base step penalty
+        rewards = {agent: -0.01 for agent in self.agents}  # smaller step penalty
         terminations = {agent: False for agent in self.agents}
         truncations = {agent: self.step_count >= self.maxCycles for agent in self.agents}
         infos = {agent: {} for agent in self.agents}
@@ -129,21 +156,36 @@ class GridWorldEnvironment(ParallelEnv):
         for agent, action in actions.items():
             self._move_agent(agent, action)
 
-        # Discovery reward
+        # Discovery reward - removed to focus on goal
         for agent in self.agents:
             newly_discovered = 0
             for x, y in self._visible_tiles(agent):
                 if not self.discovered[x, y]:
                     self.discovered[x, y] = True
                     newly_discovered += 1
-            rewards[agent] += newly_discovered * 0.1
+            rewards[agent] += newly_discovered * 0.5
+
+        # Reward tiles
+        for agent in self.agents:
+            x, y = self.agent_positions[agent]
+            if self.grid[x, y] == 3:
+                rewards[agent] = 100.0  # Large positive reward
+                terminations[agent] = True
+                self.grid[x, y] = 0
+                log.i(f"{agent} collected reward at ({x}, {y})")
 
         # Hazard penalty
         for agent in self.agents:
             x, y = self.agent_positions[agent]
             if self.grid[x, y] == 2:
                 terminations[agent] = True
-                rewards[agent] = -1.0
+                rewards[agent] = -100.0
+
+        # Check if no rewards remain - truncate all agents
+        if not np.any(self.grid == 3):
+            for agent in self.agents:
+                truncations[agent] = True
+                self.reward_found = True
 
         # Live agents
         live_agents = [
@@ -160,10 +202,7 @@ class GridWorldEnvironment(ParallelEnv):
         # Optional rendering
         if self.render_enabled:
             self.render()
-            time.sleep(0.1)  # slow down visualization at the end
-            if len(self.agents) == 0:
-                self.close()
-                
+            time.sleep(0.1)
 
         return observations, rewards, terminations, truncations, infos
     
@@ -202,7 +241,7 @@ class GridWorldEnvironment(ParallelEnv):
         size = 2 * self.visionRange + 1
 
         for agent in agents_list:
-            obs = np.zeros((4, size, size), dtype=np.float32)
+            obs = np.zeros((5, size, size), dtype=np.float32)  # 5 channels now
 
             x, y = self.agent_positions[agent]
 
@@ -212,7 +251,7 @@ class GridWorldEnvironment(ParallelEnv):
                     obs_x, obs_y = dx + self.visionRange, dy + self.visionRange
 
                     if 0 <= nx < self.grid_size and 0 <= ny < self.grid_size:
-                        # Terrain
+                        # Terrain (blocked/hazard)
                         obs[0, obs_x, obs_y] = 1.0 if self.grid[nx, ny] in [1, 2] else 0.0
                         # Discovered tiles
                         obs[1, obs_x, obs_y] = 1.0 if self.discovered[nx, ny] else 0.0
@@ -223,6 +262,9 @@ class GridWorldEnvironment(ParallelEnv):
                         for other, (ox, oy) in self.agent_positions.items():
                             if other != agent and ox == nx and oy == ny:
                                 obs[3, obs_x, obs_y] = 1.0
+                        # Reward tiles
+                        if self.grid[nx, ny] == 3:
+                            obs[4, obs_x, obs_y] = 1.0
                     else:
                         # Out-of-bounds padding (optional)
                         obs[:, obs_x, obs_y] = 0.0
@@ -242,6 +284,20 @@ class GridWorldEnvironment(ParallelEnv):
                     tiles.append((nx, ny))
         return tiles
     
+    def _place_random_reward(self):
+        # Clear existing rewards
+        self.grid[self.grid == 3] = 0
+        
+        valid_positions = []
+        for x in range(4, self.grid_size - 4):
+            for y in range(4, self.grid_size - 4):
+                if self.grid[x, y] == 0:
+                    valid_positions.append((x, y))
+        
+        if valid_positions:
+            rx, ry = valid_positions[np.random.randint(len(valid_positions))]
+            self.grid[rx, ry] = 3
+    
     def action_space(self, agent):
         return self.action_spaces[agent]
 
@@ -250,87 +306,131 @@ class GridWorldEnvironment(ParallelEnv):
     
     # ---------------- Rendering ----------------
     def render(self):
+        try:
+            if not self.render_enabled:
+                return
 
-        if not self.render_enabled:
-            return
+            grid_size = self.grid.shape[0]
+            cell_size = 30
+            win_size = grid_size * cell_size
 
-        grid_size = self.grid.shape[0]
-        cell_size = 30
-        win_size = grid_size * cell_size
+            # Create window once
+            if self.window is None:
+                self.window = GraphWin("GridWorld", win_size, win_size)
+                self.window.setBackground("white")
 
-        # -------------------------------------------------
-        # Create window only once
-        # -------------------------------------------------
-        if self.window is None:
-            self.window = GraphWin("GridWorld", win_size, win_size)
-            self.window.setBackground("white")
+            # Draw static grid only once per episode
+            if not self.static_drawn:
+                # Clear old tiles if they exist
+                if self.static_tiles:
+                    for row in self.static_tiles:
+                        for img in row:
+                            if img:
+                                try:
+                                    img.undraw()
+                                except:
+                                    pass
 
-        # -------------------------------------------------
-        # Draw static grid only once
-        # -------------------------------------------------
-        if not self.static_drawn:
+                self.static_tiles = [[None for _ in range(grid_size)] for _ in range(grid_size)]
 
-            self.tile_rects = [[None for _ in range(grid_size)] for _ in range(grid_size)]
+                for i in range(grid_size):
+                    for j in range(grid_size):
+                        center_x = j * cell_size + cell_size / 2
+                        center_y = i * cell_size + cell_size / 2
 
+                        if self.grid[i, j] == 1:
+                            filename = "../Sprites/Tile_Blocked.png"
+                        elif self.grid[i, j] == 2:
+                            filename = "../Sprites/Tile_Fatal.png"
+                        elif self.grid[i, j] == 3:
+                            filename = "../Sprites/Tile_Reward.png"
+                        else:
+                            filename = "../Sprites/Tile_Available.png"
+
+                        img = Image(Point(center_x, center_y), filename)
+                        img.draw(self.window)
+                        self.static_tiles[i][j] = img
+
+                self.static_drawn = True
+
+            # Update discovered tiles
             for i in range(grid_size):
                 for j in range(grid_size):
+                    if self.discovered[i, j] and self.grid[i, j] == 0:
+                        if self.static_tiles[i][j]:
+                            try:
+                                self.static_tiles[i][j].undraw()
+                            except:
+                                pass
+                            
+                            center_x = j * cell_size + cell_size / 2
+                            center_y = i * cell_size + cell_size / 2
+                            img = Image(Point(center_x, center_y), "../Sprites/Tile_Discovered.png")
+                            img.draw(self.window)
+                            self.static_tiles[i][j] = img
 
-                    x1 = j * cell_size
-                    y1 = i * cell_size
-                    x2 = x1 + cell_size
-                    y2 = y1 + cell_size
+            # Remove old agent drawings
+            for img in self.agent_drawings.values():
+                try:
+                    img.undraw()
+                except:
+                    pass
+            self.agent_drawings = {}
 
-                    rect = Rectangle(Point(x1, y1), Point(x2, y2))
+            # Draw agents at current positions
+            for agent, (x, y) in self.agent_positions.items():
+                center_x = y * cell_size + cell_size / 2
+                center_y = x * cell_size + cell_size / 2
+                agent_number = int(agent.split("_")[-1])
+                filename = f"../Sprites/Drone_{agent_number}.png"
+                img = Image(Point(center_x, center_y), filename)
+                img.draw(self.window)
+                self.agent_drawings[agent] = img
+            
+            # Update window to process events and refresh display
+            self.window.update()
 
-                    if self.grid[i, j] == 1:
-                        rect.setFill("black")
-                    elif self.grid[i, j] == 2:
-                        rect.setFill("red")
-                    else:
-                        rect.setFill("white")
-
-                    rect.draw(self.window)
-                    self.tile_rects[i][j] = rect
-
-            self.static_drawn = True
-
-        # -------------------------------------------------
-        # Update discovered tiles only if changed
-        # -------------------------------------------------
-        for i in range(grid_size):
-            for j in range(grid_size):
-
-                if self.discovered[i, j] and self.grid[i, j] == 0:
-                    self.tile_rects[i][j].setFill("lightblue")
-
-        # -------------------------------------------------
-        # Remove previous agents
-        # -------------------------------------------------
-        for drawing in self.agent_drawings.values():
-            drawing.undraw()
-
-        self.agent_drawings = {}
-
-        # -------------------------------------------------
-        # Draw agents
-        # -------------------------------------------------
-        for agent, (x, y) in self.agent_positions.items():
-
-            x1 = y * cell_size
-            y1 = x * cell_size
-            x2 = x1 + cell_size
-            y2 = y1 + cell_size
-
-            rect = Rectangle(Point(x1, y1), Point(x2, y2))
-            rect.setFill("green")
-            rect.draw(self.window)
-
-            self.agent_drawings[agent] = rect
+        except Exception:
+            pass  # Silently ignore rendering errors
 
     def close(self):
-        if self.window is not None:
-            self.window.close()
+        try:
+            if self.window is not None:
+                self.window.close()
+        except Exception:
+            pass
+        finally:
             self.window = None
+            self.static_drawn = False
+
+    def getNumTilesDiscovered(self):
+        return np.sum(self.discovered)
+    
+    def getStepsTaken(self):
+        return self.step_count
+    
+    def getAnalysisScore(self):
+        rewardFoundWeight = 50
+        stepsTakenWeight = -1
+        TilesDiscoveredWeight = 0.1
+
+        score = (
+            rewardFoundWeight * int(self.reward_found) +
+            stepsTakenWeight * self.getStepsTaken() +
+            TilesDiscoveredWeight * self.getNumTilesDiscovered()
+            )
+        
+        return score
+    
+    def getEpisodeAnalysis(self):
+        return {
+            "reward_found": 1 if self.reward_found else 0,
+            "steps_taken": self.getStepsTaken(), 
+            "tiles_discovered": self.getNumTilesDiscovered(),
+            "analysis_score": self.getAnalysisScore(),
+            "Steps_to_find_reward_if_found": self.getStepsTaken() if self.reward_found else None,
+            "TilesDiscoveredPerStep": self.getNumTilesDiscovered()/self.getStepsTaken() if self.getStepsTaken() > 0 else 0      
+        }
 
 #Testing
 if __name__ == "__main__":
