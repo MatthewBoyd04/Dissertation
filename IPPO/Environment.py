@@ -21,14 +21,23 @@ class GridWorldEnvironment(ParallelEnv):
         "render_modes": ["human"],
         }
     
+    #Reward Weights:
+    rewardWeight = {
+        "tileDiscovered": 1,
+        "rewardFound": 100,
+        "HazardHit": -100,
+        "Steps": -0.01,
+    }
+    
     def __init__(
             self, 
             mapPreset: list[int], 
-            agents:list[str], 
+            num_drones: int = 4,
             maxCycles:int = 1000,
             visionRange: int = 2,
             render_every: int | None = None,
-            tile_size: int = 16
+            tile_size: int = 16,
+            use_map_memory: bool = False
         ):
 
         #Environment Variables
@@ -37,6 +46,7 @@ class GridWorldEnvironment(ParallelEnv):
         self.maxCycles = maxCycles
         self.visionRange = visionRange
         self.step_count = 0
+        self.use_map_memory = use_map_memory
         
         log.d("Unique grid values:" + str(np.unique(self.grid)))
 
@@ -63,7 +73,8 @@ class GridWorldEnvironment(ParallelEnv):
         self.reward_found = False
 
         #Agent Variables
-        self.possible_agents = agents
+        self.num_drones = max(1, min(num_drones, 8))  # Clamp between 1-8
+        self.possible_agents = [f"Drone_{i+1}" for i in range(self.num_drones)]
         self.agents = self.possible_agents[:]
         self.agent_positions = {} #Will be populated in the reset function, key is agent name, value is (x,y) position on the grid.
 
@@ -75,24 +86,35 @@ class GridWorldEnvironment(ParallelEnv):
 
         #Observation Space:
         obs_size = 2 * self.visionRange + 1
+        num_channels = 6 if use_map_memory else 5  # Add channel for map memory
         self.observation_spaces = {
             agent: spaces.Box(
-                low=0.0,
+                low=-1.0,  # -1 for undiscovered in memory
                 high=1.0,
-                shape=(5, obs_size, obs_size),  # Added 5th channel for rewards
+                shape=(num_channels, obs_size, obs_size),
                 dtype=np.float32
             )
             for agent in self.possible_agents
         }
 
         #Tracking Discovered Tiles
-        self.discovered = np.zeros_like(self.grid, dtype=bool) #Keep track of discovered Tiles for analysis and rewards
+        self.discovered = np.zeros_like(self.grid, dtype=bool) #Keep track of discovered Tiles for analysis
+        self.agent_discovered = {agent: np.zeros_like(self.grid, dtype=bool) for agent in self.possible_agents} #Track per-agent discoveries
+        
+        # Map memory for each agent (-1 = undiscovered, 0 = available, 1 = blocked/hazard)
+        if use_map_memory:
+            self.agent_memory = {agent: np.full_like(self.grid, -1, dtype=np.float32) for agent in self.possible_agents}
     
     def reset(self, seed=None, options=None):
         self.episode_count += 1
         self.step_count = 0
         self.agents = self.possible_agents[:]
         self.discovered = np.zeros_like(self.grid, dtype=bool)
+        self.agent_discovered = {agent: np.zeros_like(self.grid, dtype=bool) for agent in self.possible_agents}
+        
+        # Reset map memory
+        if self.use_map_memory:
+            self.agent_memory = {agent: np.full_like(self.grid, -1, dtype=np.float32) for agent in self.possible_agents}
 
 
 
@@ -116,18 +138,9 @@ class GridWorldEnvironment(ParallelEnv):
 
         #Analysis Variables:
         self.reward_found = False
-        #TO-DO - Add in the option to change starting position based on drone count, for now 4 drones is assumed. 
         
-        # Initialize agent positions
-        min_idx = 0
-        mid_idx = (self.grid_size - 1) // 2
-        max_idx = self.grid_size - 1
-        self.agent_positions = {
-            "Drone_1": [mid_idx, min_idx],
-            "Drone_2": [min_idx, mid_idx],
-            "Drone_3": [mid_idx, max_idx],
-            "Drone_4": [max_idx, mid_idx]
-        }
+        # Initialize agent positions based on drone count
+        self.agent_positions = self._get_starting_positions()
 
         # Place random reward tile
         self._place_random_reward()
@@ -156,20 +169,30 @@ class GridWorldEnvironment(ParallelEnv):
         for agent, action in actions.items():
             self._move_agent(agent, action)
 
-        # Discovery reward - removed to focus on goal
+        # Discovery reward - per agent
         for agent in self.agents:
             newly_discovered = 0
             for x, y in self._visible_tiles(agent):
+                # Update global discovered for analysis
                 if not self.discovered[x, y]:
                     self.discovered[x, y] = True
+                # Reward agent for tiles new to them
+                if not self.agent_discovered[agent][x, y]:
+                    self.agent_discovered[agent][x, y] = True
                     newly_discovered += 1
-            rewards[agent] += newly_discovered * 0.5
+                # Update agent's map memory
+                if self.use_map_memory:
+                    if self.grid[x, y] in [1, 2]:  # Blocked or hazard
+                        self.agent_memory[agent][x, y] = 1.0
+                    else:
+                        self.agent_memory[agent][x, y] = 0.0
+            rewards[agent] += newly_discovered * self.rewardWeight["tileDiscovered"]
 
         # Reward tiles
         for agent in self.agents:
             x, y = self.agent_positions[agent]
             if self.grid[x, y] == 3:
-                rewards[agent] = 100.0  # Large positive reward
+                rewards[agent] += self.rewardWeight["rewardFound"]
                 terminations[agent] = True
                 self.grid[x, y] = 0
                 log.i(f"{agent} collected reward at ({x}, {y})")
@@ -179,7 +202,7 @@ class GridWorldEnvironment(ParallelEnv):
             x, y = self.agent_positions[agent]
             if self.grid[x, y] == 2:
                 terminations[agent] = True
-                rewards[agent] = -100.0
+                rewards[agent] += self.rewardWeight["HazardHit"]
 
         # Check if no rewards remain - truncate all agents
         if not np.any(self.grid == 3):
@@ -239,9 +262,10 @@ class GridWorldEnvironment(ParallelEnv):
 
         observations = {}
         size = 2 * self.visionRange + 1
+        num_channels = 6 if self.use_map_memory else 5
 
         for agent in agents_list:
-            obs = np.zeros((5, size, size), dtype=np.float32)  # 5 channels now
+            obs = np.zeros((num_channels, size, size), dtype=np.float32)
 
             x, y = self.agent_positions[agent]
 
@@ -265,8 +289,11 @@ class GridWorldEnvironment(ParallelEnv):
                         # Reward tiles
                         if self.grid[nx, ny] == 3:
                             obs[4, obs_x, obs_y] = 1.0
+                        # Map memory (if enabled)
+                        if self.use_map_memory:
+                            obs[5, obs_x, obs_y] = self.agent_memory[agent][nx, ny]
                     else:
-                        # Out-of-bounds padding (optional)
+                        # Out-of-bounds padding
                         obs[:, obs_x, obs_y] = 0.0
 
             observations[agent] = obs
@@ -283,6 +310,23 @@ class GridWorldEnvironment(ParallelEnv):
                 if 0<=nx<self.grid_size and 0<=ny<self.grid_size:
                     tiles.append((nx, ny))
         return tiles
+    
+    def _get_starting_positions(self):
+        mid = (self.grid_size - 1) // 2
+        max_idx = self.grid_size - 1
+        
+        positions = [
+            [mid, 0],           # 1: Left centre
+            [mid, max_idx],     # 2: Right centre
+            [0, mid],           # 3: Top centre
+            [max_idx, mid],     # 4: Bottom centre
+            [0, max_idx],       # 5: Top right
+            [max_idx, max_idx], # 6: Bottom right
+            [0, 0],             # 7: Top left
+            [max_idx, 0]        # 8: Bottom left
+        ]
+        
+        return {f"Drone_{i+1}": positions[i] for i in range(self.num_drones)}
     
     def _place_random_reward(self):
         # Clear existing rewards
@@ -434,11 +478,9 @@ class GridWorldEnvironment(ParallelEnv):
 
 #Testing
 if __name__ == "__main__":
-    agents = ["Drone_1", "Drone_2", "Drone_3", "Drone_4"]
-
     env = GridWorldEnvironment(
         mapPreset=map_15x15,
-        agents=agents,
+        num_drones=4,
         render_every=50  # render every 50 episodes
     )
 

@@ -1,0 +1,111 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Main_IPPO",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/IPPO/Main_IPPO.py",
+            "console": "externalTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Main_MAPPO",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/MAPPO/Main_MAPPO.py",
+            "console": "externalTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Main_JOINT_PPO",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/JOINT_PPO/Main_JOINT_PPO.py",
+            "console": "externalTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        /*
+        {
+            "name": "IPPO_Env_Test",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/IPPO/Environment.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "IPPO_Simulate",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/IPPO/simulate_IPPO.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "IPPO_Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/IPPO/train_IPPO.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "MAPPO_Simulate",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/MAPPO/simulate_MAPPO.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "MAPPO_Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/MAPPO/train_MAPPO.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        */
+        {
+            "name": "Plot Data",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/PlotAnalysis.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Delete Current MAPPO Data Set",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/MAPPO/reset_training.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/MAPPO"
+        },
+        {
+            "name": "Delete Current JOINT_PPO Data Set",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/JOINT_PPO/clear_joint_ppo_data.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/JOINT_PPO"
+        },
+        {
+            "name": "JOINT_PPO_Simulate",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/JOINT_PPO/simulate_JOINT_PPO.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "JOINT_PPO_Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/JOINT_PPO/train_JOINT_PPO.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

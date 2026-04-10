@@ -10,16 +10,10 @@ import csv
 from Maps import map_15x15, map_30x30, map_45x45
 from LoggerConfig import log
 
- # Agent names
-agents = ["Drone_1", "Drone_2", "Drone_3", "Drone_4"]
-
 # Get IPPO directory path
 ippo_dir = os.path.dirname(os.path.abspath(__file__))
 
-# Map for evaluation
-map_data = map_30x30
-
-def runSimulations(simulations = 100, timeStepsRan = 0):
+def runSimulations(simulations = 100, timeStepsRan = 0, num_drones=4):
     for map_data in [map_15x15, map_30x30, map_45x45]:
         
         # Determine map name
@@ -30,8 +24,9 @@ def runSimulations(simulations = 100, timeStepsRan = 0):
         else:
             map_name = "map_45x45"
         
-        # Create environment
-        env = GridWorldEnvironment(mapPreset=map_data, agents=agents, maxCycles=512, visionRange=2)
+        # Create environment with map memory enabled
+        env = GridWorldEnvironment(mapPreset=map_data, maxCycles=1024, visionRange=2, use_map_memory=True, num_drones=num_drones)
+        agents = env.possible_agents
 
         # Load trained models
         models = {}
@@ -115,6 +110,7 @@ def runSimulations(simulations = 100, timeStepsRan = 0):
 if __name__  == "__main__":
     simulations = 50
     timeStepsRan = 0
+    num_drones = 4  # Set number of drones here
     for i in range(2):
-        runSimulations(simulations, timeStepsRan)
+        runSimulations(simulations, timeStepsRan, num_drones)
         timeStepsRan += 500_000

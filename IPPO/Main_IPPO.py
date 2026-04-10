@@ -10,7 +10,9 @@ from PlotAnalysis import plotAnalysisData
 import json
 
 timesteps_per_iteration = 50_000
-total_iterations = 1000
+total_iterations = 200
+num_drones = 2
+use_frozen_agents = True #If false, no alternative agents will act during training, if true, agents will be loaded from previous training iterations and will act during training (if available) - this can help stabilize training but may limit exploration, especially in early iterations when frozen agents are not yet well-trained
 
 # Get IPPO directory path
 ippo_dir = os.path.dirname(os.path.abspath(__file__))
@@ -33,10 +35,16 @@ for iteration in range(start_iteration, total_iterations):
     log.i(f"\n=== Iteration {iteration + 1}/{total_iterations} ===")
     
     # Train
-    trainAgents(timesteps_per_iteration, parallel=False)
+    trainAgents(
+        timesteps_per_iteration,
+        parallel=False,
+        num_drones=num_drones,
+        cumulativeTimestepsSoFar=total_timesteps_so_far,
+        use_frozen_agents=use_frozen_agents
+    )
     
     # Simulate and analyze
-    runSimulations(simulations=100, timeStepsRan=current_timesteps)
+    runSimulations(simulations=100, timeStepsRan=current_timesteps, num_drones=num_drones)
     
     # Plot analysis data for all maps
     plotAnalysisData(os.path.join(ippo_dir, "map_15x15_analysis_Results.csv"))

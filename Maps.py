@@ -1,3 +1,5 @@
+isSafe = True
+
 map_15x15 = [
     [0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -66,3 +68,19 @@ map_45x45 = [
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] * 3,
     [0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0] * 3,
 ] * 3
+
+if isSafe:
+    for i in range(len(map_15x15)):
+        for j in range(len(map_15x15[i])):
+            if map_15x15[i][j] == 2:
+                map_15x15[i][j] = 0
+
+    for i in range(len(map_30x30)):
+        for j in range(len(map_30x30[i])):
+            if map_30x30[i][j] == 2:
+                map_30x30[i][j] = 0
+
+    for i in range(len(map_45x45)):
+        for j in range(len(map_45x45[i])):
+            if map_45x45[i][j] == 2:
+                map_45x45[i][j] = 0

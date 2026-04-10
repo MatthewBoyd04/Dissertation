@@ -1,0 +1,41 @@
+**Training Paradigm:**
+
+* IPPO
+
+
+
+Basics:
+
+* Date Trained: FILL IN
+* Drone Data File: *IPPO/\_Drone\_Data\_Archives/FILL IN*
+
+
+
+<b>Training Progress:</b>
+
+* Iterations - 200
+* Time Steps Per Iteration - 50\_000
+* Total Time Steps - 10\_000\_000
+* Time Taken: FILL IN 29503335295 + 
+
+**Env Info:**
+
+* Drones: 8
+* Observation Layers: 6 (Terrain, Discovered Tiles, Self Position, Other Agents, Reward Tiles, Map Memory)
+* Reward Placement: Randomised
+* Training maps: 15x15, 30x30, 45x45 STANDARD
+* Testing Maps: 15x15, 30x30, 45x45 STANDARD
+* Rewards: 1
+
+**Reward Weights**
+* Per Discovered Tile (Individual memory): 0.5
+* Per Reward: 100
+* Per Hazard: -100
+* Per Step: -0.01
+
+**Changes:**
+* Cirriculum Learning (15x15 - > 30x30 -> 45x45)
+* Decaying Learning Rate
+* More Cycles per training episode
+* Batch Size 64 -> 512
+* Higher Entropy (Exploration)

@@ -1,14 +1,18 @@
 import gymnasium as gym
 import numpy as np
+from stable_baselines3 import PPO
+import os
 
 class SingleAgentWrapper(gym.Env):
     """
     Wrap a PettingZoo ParallelEnv for a single agent so it can be trained with SB3.
+    Other agents can be controlled by frozen policies if available.
     """
-    def __init__(self, env, agent_name):
+    def __init__(self, env, agent_name, frozen_models=None):
         super().__init__()
         self.env = env
         self.agent_name = agent_name
+        self.frozen_models = frozen_models or {}  # Dict of {agent_name: PPO_model}
 
         # Set SB3-compatible spaces
         self.action_space = env.action_spaces[agent_name]
@@ -23,8 +27,18 @@ class SingleAgentWrapper(gym.Env):
         return obs_dict[self.agent_name], {}
 
     def step(self, action):
-        # Step only the single agent
-        obs_dict, rewards, terminations, truncations, infos = self.env.step({self.agent_name: action})
+        # Collect actions for all agents
+        actions = {self.agent_name: action}
+        
+        # Get actions from frozen models for other agents
+        for agent in self.env.agents:
+            if agent != self.agent_name and agent in self.frozen_models:
+                obs = self.env._get_obs([agent])[agent]
+                frozen_action, _ = self.frozen_models[agent].predict(obs, deterministic=False)
+                actions[agent] = int(frozen_action)
+        
+        # Step environment with all actions
+        obs_dict, rewards, terminations, truncations, infos = self.env.step(actions)
         self.done = terminations.get(self.agent_name, True) or truncations.get(self.agent_name, True)
 
         # If agent was removed, return dummy observation
