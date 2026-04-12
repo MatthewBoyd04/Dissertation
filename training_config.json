@@ -1,0 +1,15 @@
+{
+  "algorithm": "ippo_live",
+  "num_drones": 8,
+  "vision_range": 3,
+  "map_mode": "safe",
+  "render_every": null,
+  "sim_render_every": 0,
+  "reward_weights": {
+    "tileDiscovered": 0.5,
+    "rewardFound": 200.0,
+    "HazardHit": -100.0,
+    "Steps": -0.1,
+    "approachReward": 5.0
+  }
+}

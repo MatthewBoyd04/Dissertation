@@ -30,20 +30,24 @@ class SingleAgentWrapper(gym.Env):
         # Collect actions for all agents
         actions = {self.agent_name: action}
         
-        # Get actions from frozen models for other agents
-        for agent in self.env.agents:
-            if agent != self.agent_name and agent in self.frozen_models:
-                obs = self.env._get_obs([agent])[agent]
-                frozen_action, _ = self.frozen_models[agent].predict(obs, deterministic=False)
+        # Get actions from frozen models — one _get_obs call for all frozen agents at once
+        frozen_agents = [a for a in self.env.agents
+                         if a != self.agent_name and a in self.frozen_models]
+        if frozen_agents:
+            frozen_obs = self.env._get_obs(frozen_agents)
+            for agent in frozen_agents:
+                frozen_action, _ = self.frozen_models[agent].predict(
+                    frozen_obs[agent], deterministic=True)
                 actions[agent] = int(frozen_action)
         
         # Step environment with all actions
         obs_dict, rewards, terminations, truncations, infos = self.env.step(actions)
         self.done = terminations.get(self.agent_name, True) or truncations.get(self.agent_name, True)
 
-        # If agent was removed, return dummy observation
+        # If agent was removed, return a -1.0-filled observation (represents "unseen/unknown")
+        # Using zeros would be out-of-range for the [-1, 1] obs space and confuse the policy.
         if self.agent_name not in obs_dict:
-            obs = np.zeros(self.observation_space.shape, dtype=np.float32)
+            obs = np.full(self.observation_space.shape, -1.0, dtype=np.float32)
             return obs, rewards.get(self.agent_name, 0.0), self.done, False, {}
 
         # Return Gym-compatible tuple

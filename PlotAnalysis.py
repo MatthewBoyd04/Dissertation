@@ -5,29 +5,43 @@ import os
 # Store figure references for each CSV file
 _plot_figures = {}
 
-def plotAnalysisData(csv_filename, ma_window=5):
+def plotAnalysisData(csv_filename, ma_window=10):
     """
     Plots all metrics from a CSV analysis file.
     Updates existing plot if it exists, creates new one otherwise.
-    
+
     Args:
         csv_filename: Path to the CSV file to plot
-        ma_window: Window size for moving average (default: 5)
+        ma_window: Window size for moving average (default: 10)
     """
     if not os.path.exists(csv_filename):
         print(f"File {csv_filename} not found")
         return
-    
+
     # Read CSV
     df = pd.read_csv(csv_filename)
-    
-    # Calculate moving averages
+
+    # "Avg Steps to Reward" is 0 when no reward was found that round — treat as missing
+    # so the plot shows gaps rather than misleading 0-steps data points.
+    df['Avg Steps to Reward'] = df['Avg Steps to Reward'].replace(0, float('nan'))
+
+    # Calculate moving averages (skip NaN via min_periods)
     df['MA_Reward'] = df['Reward Found %'].rolling(window=ma_window, min_periods=1).mean()
     df['MA_Steps'] = df['Avg Steps'].rolling(window=ma_window, min_periods=1).mean()
     df['MA_Tiles'] = df['Avg Tiles'].rolling(window=ma_window, min_periods=1).mean()
     df['MA_TilesPerStep'] = df['Avg Tiles Per Step'].rolling(window=ma_window, min_periods=1).mean()
     df['MA_StepsToReward'] = df['Avg Steps to Reward'].rolling(window=ma_window, min_periods=1).mean()
-    df['MA_Score'] = df['Avg Score'].rolling(window=ma_window, min_periods=1).mean()
+    if 'Avg Score' in df.columns:
+        last_col = 'Avg Score'
+        last_col_label = 'Average Analysis Score'
+        last_col_ylabel = 'Score'
+        last_col_color = 'brown'
+    else:
+        last_col = 'Avg Drones Terminated'
+        last_col_label = 'Avg Drones Terminated by Hazard'
+        last_col_ylabel = 'Drones'
+        last_col_color = 'darkred'
+    df['MA_LastCol'] = df[last_col].rolling(window=ma_window, min_periods=1).mean()
     
     # Get or create figure for this CSV file
     if csv_filename not in _plot_figures:
@@ -74,19 +88,21 @@ def plotAnalysisData(csv_filename, ma_window=5):
     axes[1, 0].legend()
     axes[1, 0].grid(True)
     
-    axes[1, 1].plot(df['TimeSteps'], df['Avg Steps to Reward'], marker='o', color='purple', alpha=0.3, label='Raw')
-    axes[1, 1].plot(df['TimeSteps'], df['MA_StepsToReward'], color='purple', linewidth=2, label=f'MA({ma_window})')
-    axes[1, 1].set_title('Avg Steps to Reward')
+    # Drop NaN rows for "Steps to Reward" — gaps mean reward wasn't found that round
+    str_valid = df[['TimeSteps', 'Avg Steps to Reward', 'MA_StepsToReward']].dropna()
+    axes[1, 1].plot(str_valid['TimeSteps'], str_valid['Avg Steps to Reward'], marker='o', color='purple', alpha=0.3, label='Raw (reward found)')
+    axes[1, 1].plot(str_valid['TimeSteps'], str_valid['MA_StepsToReward'], color='purple', linewidth=2, label=f'MA({ma_window})')
+    axes[1, 1].set_title('Avg Steps to Reward\n(gaps = reward not found)')
     axes[1, 1].set_xlabel('TimeSteps')
     axes[1, 1].set_ylabel('Steps')
     axes[1, 1].legend()
     axes[1, 1].grid(True)
     
-    axes[1, 2].plot(df['TimeSteps'], df['Avg Score'], marker='o', color='brown', alpha=0.3, label='Raw')
-    axes[1, 2].plot(df['TimeSteps'], df['MA_Score'], color='brown', linewidth=2, label=f'MA({ma_window})')
-    axes[1, 2].set_title('Average Analysis Score')
+    axes[1, 2].plot(df['TimeSteps'], df[last_col], marker='o', color=last_col_color, alpha=0.3, label='Raw')
+    axes[1, 2].plot(df['TimeSteps'], df['MA_LastCol'], color=last_col_color, linewidth=2, label=f'MA({ma_window})')
+    axes[1, 2].set_title(last_col_label)
     axes[1, 2].set_xlabel('TimeSteps')
-    axes[1, 2].set_ylabel('Score')
+    axes[1, 2].set_ylabel(last_col_ylabel)
     axes[1, 2].legend()
     axes[1, 2].grid(True)
     

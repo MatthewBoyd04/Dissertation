@@ -6,8 +6,6 @@ import numpy as np
 
 #Helpers
 from LoggerConfig import log
-from graphics import GraphWin, Rectangle, Point, Image
-import time
 
 #Testing Only
 from Maps import map_15x15, map_30x30, map_45x45
@@ -25,22 +23,21 @@ class GridWorldEnvironment(ParallelEnv):
     rewardWeight = {
         "tileDiscovered": 1.0,        # Team bonus per tile
         "individualDiscovery": 4.0,   # Individual bonus for discoverer
-        "rewardFound": 10000,
-        "HazardHit": -100,
-        "Steps": -0.01,
+        "rewardFound": 150,           # Rebalanced: was 10000 (100x too high vs discovery)
+        "HazardHit": -200,            # Rebalanced: was -100 (now meaningfully worse than missing reward)
+        "Steps": -0.1,                # Increased time pressure: was -0.01
         "explorationBonus": 0.5,      # For distance-based discovery
         "spacingBonus": 0.5,          # For spreading out
         "noveltyBonus": 2.0,          # For visiting new areas
+        "approachReward": 5.0,        # per-step distance reduction toward visible reward tile
     }
     
     def __init__(
-            self, 
-            mapPreset: list[int], 
+            self,
+            mapPreset: list[int],
             num_drones: int = 4,
             maxCycles:int = 1000,
             visionRange: int = 2,
-            render_every: int | None = None,
-            tile_size: int = 16,
             use_map_memory: bool = False
         ):
 
@@ -54,27 +51,25 @@ class GridWorldEnvironment(ParallelEnv):
         
         log.d("Unique grid values:" + str(np.unique(self.grid)))
 
-        #Rendering Variables 
-        self.render_every = render_every
-        self.tile_size = tile_size
-        self.episode_count = 0
-        self.render_enabled = False
-        self.window = None
-        self.static_drawn = False
-        self.tile_images = None
-
-        self.static_tiles = None
-        self.discovered_overlays = None
-
-        self.agent_drawings = {}
-        self.sprite_cache = {}
-        self.previous_positions = {}
-        self.discovered_drawn = None
-
-        self.fog_tiles = None
-
         #Analysis Variables
         self.reward_found = False
+        self.rewards_collected = 0
+        self.hazard_terminations = 0
+        self.has_hazards = bool(np.any(self.grid == 2))
+
+        # Load training config (written by UI) to override reward weights and map mode
+        import json as _json
+        import os as _os
+        _cfg_path = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "training_config.json")
+        if _os.path.exists(_cfg_path):
+            with open(_cfg_path) as _f:
+                _cfg = _json.load(_f)
+            for k, v in _cfg.get("reward_weights", {}).items():
+                if k in self.rewardWeight:
+                    self.rewardWeight[k] = v
+            self.num_rewards = 3 if _cfg.get("map_mode") == "multiple_rewards" else 1
+        else:
+            self.num_rewards = 1
 
         #Agent Variables
         self.num_drones = max(1, min(num_drones, 8))  # Clamp between 1-8
@@ -114,44 +109,27 @@ class GridWorldEnvironment(ParallelEnv):
         
         # Store starting positions for distance calculations
         self.starting_positions = {}
+        self.prev_reward_dists = {}
     
     def reset(self, seed=None, options=None):
-        self.episode_count += 1
         self.step_count = 0
         self.agents = self.possible_agents[:]
         self.discovered = np.zeros_like(self.grid, dtype=bool)
         self.agent_discovered = {agent: np.zeros_like(self.grid, dtype=bool) for agent in self.possible_agents}
-        
+
         # Reset map memory
         if self.use_map_memory:
             self.agent_memory = {agent: np.full_like(self.grid, -1, dtype=np.float32) for agent in self.possible_agents}
-        
+
         # Reset visit counts
         self.agent_visit_counts = {agent: np.zeros_like(self.grid, dtype=np.int32) for agent in self.possible_agents}
 
-
-
-        # Clean up rendering resources for new episode
-        if self.render_enabled:
-            for agent_img in self.agent_drawings.values():
-                try:
-                    agent_img.undraw()
-                except:
-                    pass
-        
-        self.agent_drawings = {}
-        self.previous_positions = {}
-        self.static_drawn = False
-    
-        # Rendering decision
-        self.render_enabled = (
-            self.render_every is not None and
-            self.episode_count % self.render_every == 0
-        )
-
         #Analysis Variables:
         self.reward_found = False
-        
+        self.rewards_collected = 0
+        self.hazard_terminations = 0
+        self.prev_reward_dists = {agent: None for agent in self.possible_agents}
+
         # Initialize agent positions based on drone count
         self.agent_positions = self._get_starting_positions()
         self.starting_positions = {agent: pos.copy() for agent, pos in self.agent_positions.items()}
@@ -159,10 +137,11 @@ class GridWorldEnvironment(ParallelEnv):
         # Place random reward tile
         self._place_random_reward()
 
-        # Mark initial discovered tiles
+        # Mark initial discovered tiles (also mark per-agent to prevent rewarding start-visible tiles)
         for agent in self.agents:
             for x, y in self._visible_tiles(agent):
                 self.discovered[x, y] = True
+                self.agent_discovered[agent][x, y] = True
 
         observations = self._get_obs()
         infos = {agent: {} for agent in self.agents}
@@ -188,66 +167,94 @@ class GridWorldEnvironment(ParallelEnv):
             x, y = self.agent_positions[agent]
             self.agent_visit_counts[agent][x, y] += 1
 
-        # Discovery rewards with multiple components
+        # Discovery rewards with multiple components (vectorised slice operations)
         for agent in self.agents:
-            for x, y in self._visible_tiles(agent):
-                # Global discovery - team bonus
-                if not self.discovered[x, y]:
-                    self.discovered[x, y] = True
-                    
-                    # Team bonus for all agents
-                    for a in self.agents:
-                        rewards[a] += self.rewardWeight["tileDiscovered"]
-                    
-                    # Individual bonus for discoverer
-                    rewards[agent] += self.rewardWeight["individualDiscovery"]
-                    
-                    # Distance-based exploration bonus
-                    start_x, start_y = self.starting_positions[agent]
-                    distance = np.sqrt((x - start_x)**2 + (y - start_y)**2)
-                    rewards[agent] += self.rewardWeight["explorationBonus"] * distance
-                
-                # Track per-agent for memory
-                if not self.agent_discovered[agent][x, y]:
-                    self.agent_discovered[agent][x, y] = True
-                
-                # Update agent's map memory
-                if self.use_map_memory:
-                    if self.grid[x, y] in [1, 2]:
-                        self.agent_memory[agent][x, y] = 1.0
-                    else:
-                        self.agent_memory[agent][x, y] = 0.0
-        
+            ax, ay = self.agent_positions[agent]
+            x_lo = max(0, ax - self.visionRange);  x_hi = min(self.grid_size, ax + self.visionRange + 1)
+            y_lo = max(0, ay - self.visionRange);  y_hi = min(self.grid_size, ay + self.visionRange + 1)
+
+            new_mask = ~self.discovered[x_lo:x_hi, y_lo:y_hi]
+            num_new = int(np.sum(new_mask))
+
+            if num_new > 0:
+                self.discovered[x_lo:x_hi, y_lo:y_hi] = True
+
+                # Team bonus batched for all agents
+                team_bonus = num_new * self.rewardWeight["tileDiscovered"]
+                for a in self.agents:
+                    rewards[a] += team_bonus
+
+                rewards[agent] += num_new * self.rewardWeight["individualDiscovery"]
+
+                # Distance bonus vectorised over newly discovered tile coordinates
+                xs = np.where(new_mask)[0] + x_lo
+                ys = np.where(new_mask)[1] + y_lo
+                start_x, start_y = self.starting_positions[agent]
+                distances = np.sqrt((xs - start_x) ** 2 + (ys - start_y) ** 2)
+                rewards[agent] += self.rewardWeight["explorationBonus"] * float(distances.sum())
+
+            self.agent_discovered[agent][x_lo:x_hi, y_lo:y_hi] = True
+
+            if self.use_map_memory:
+                w = self.grid[x_lo:x_hi, y_lo:y_hi]
+                self.agent_memory[agent][x_lo:x_hi, y_lo:y_hi] = np.where(
+                    (w == 1) | (w == 2), 1.0, 0.0)
+
         # Novelty bonus - reward visiting less-visited tiles
         for agent in self.agents:
             x, y = self.agent_positions[agent]
             visit_count = self.agent_visit_counts[agent][x, y]
             novelty = self.rewardWeight["noveltyBonus"] / (1.0 + visit_count)
             rewards[agent] += novelty
-        
-        # Spacing bonus - reward agents for spreading out
-        for agent in self.agents:
-            min_dist = float('inf')
-            ax, ay = self.agent_positions[agent]
-            for other_agent in self.agents:
-                if other_agent != agent:
-                    ox, oy = self.agent_positions[other_agent]
-                    dist = np.sqrt((ax - ox)**2 + (ay - oy)**2)
-                    min_dist = min(min_dist, dist)
-            if min_dist != float('inf'):
-                spacing_reward = self.rewardWeight["spacingBonus"] * min(min_dist, 5.0) / 5.0
-                rewards[agent] += spacing_reward
 
-        # Reward tiles - SHARED reward for team cooperation
+        # Spacing bonus - vectorised pairwise distances
+        n = len(self.agents)
+        if n > 1:
+            positions = np.array([self.agent_positions[a] for a in self.agents], dtype=np.float32)
+            diffs = positions[:, np.newaxis, :] - positions[np.newaxis, :, :]  # (n, n, 2)
+            sq_dists = np.sum(diffs ** 2, axis=2)                               # (n, n)
+            np.fill_diagonal(sq_dists, np.inf)
+            min_dists = np.sqrt(np.minimum(np.min(sq_dists, axis=1), 25.0))    # sqrt once per agent
+            spacing_rewards = self.rewardWeight["spacingBonus"] * min_dists / 5.0
+            for i, agent in enumerate(self.agents):
+                rewards[agent] += float(spacing_rewards[i])
+
+        # Approach reward — dense shaping when reward tile is visible in window
+        for agent in self.agents:
+            x, y = self.agent_positions[agent]
+            r = self.visionRange
+            x_lo = max(0, x - r); x_hi = min(self.grid_size, x + r + 1)
+            y_lo = max(0, y - r); y_hi = min(self.grid_size, y + r + 1)
+            window = self.grid[x_lo:x_hi, y_lo:y_hi]
+            reward_coords = np.argwhere(window == 3)
+            if len(reward_coords) > 0:
+                abs_coords = reward_coords + np.array([x_lo, y_lo])
+                dists = np.abs(abs_coords[:, 0] - x) + np.abs(abs_coords[:, 1] - y)
+                current_dist = int(dists.min())
+                prev = self.prev_reward_dists.get(agent)
+                if prev is None:
+                    # First sighting this episode — immediate bonus to link visibility to value
+                    rewards[agent] += self.rewardWeight["approachReward"] * 2
+                else:
+                    reduction = prev - current_dist
+                    if reduction > 0:
+                        rewards[agent] += self.rewardWeight["approachReward"] * reduction
+                self.prev_reward_dists[agent] = current_dist
+            else:
+                self.prev_reward_dists[agent] = None
+
+        # Reward tiles - ALL agents share the bonus and the episode ends for all.
+        # Terminating only the collector while others continue creates mixed reward semantics.
         for agent in self.agents:
             x, y = self.agent_positions[agent]
             if self.grid[x, y] == 3:
-                # All agents get the reward bonus (team success)
                 for a in self.agents:
                     rewards[a] += self.rewardWeight["rewardFound"]
-                terminations[agent] = True
+                    truncations[a] = True   # End episode for everyone — team goal achieved
                 self.grid[x, y] = 0
-                log.i(f"{agent} collected reward at ({x}, {y})")
+                self.reward_found = True
+                self.rewards_collected += 1
+                log.i(f"{agent} collected reward at ({x}, {y}) — truncating all agents")
 
         # Hazard penalty
         for agent in self.agents:
@@ -255,6 +262,7 @@ class GridWorldEnvironment(ParallelEnv):
             if self.grid[x, y] == 2:
                 terminations[agent] = True
                 rewards[agent] += self.rewardWeight["HazardHit"]
+                self.hazard_terminations += 1
 
         # Check if no rewards remain - truncate all agents
         if not np.any(self.grid == 3):
@@ -273,11 +281,6 @@ class GridWorldEnvironment(ParallelEnv):
 
         # Update agent list
         self.agents = live_agents
-
-        # Optional rendering
-        if self.render_enabled:
-            self.render()
-            time.sleep(0.1)
 
         return observations, rewards, terminations, truncations, infos
     
@@ -313,40 +316,33 @@ class GridWorldEnvironment(ParallelEnv):
             agents_list = self.agents
 
         observations = {}
-        size = 2 * self.visionRange + 1
+        r = self.visionRange
+        size = 2 * r + 1
         num_channels = 6 if self.use_map_memory else 5
+
+        # Build occupancy grid once for all agents (O(1) lookup replaces O(N) inner loop)
+        agent_pos_grid = np.zeros((self.grid_size, self.grid_size), dtype=bool)
+        for a, (ax, ay) in self.agent_positions.items():
+            agent_pos_grid[ax, ay] = True
 
         for agent in agents_list:
             obs = np.zeros((num_channels, size, size), dtype=np.float32)
-
             x, y = self.agent_positions[agent]
 
-            for dx in range(-self.visionRange, self.visionRange + 1):
-                for dy in range(-self.visionRange, self.visionRange + 1):
-                    nx, ny = x + dx, y + dy
-                    obs_x, obs_y = dx + self.visionRange, dy + self.visionRange
+            x_lo = max(0, x - r);  x_hi = min(self.grid_size, x + r + 1)
+            y_lo = max(0, y - r);  y_hi = min(self.grid_size, y + r + 1)
+            ox_lo = x_lo - x + r;  ox_hi = x_hi - x + r
+            oy_lo = y_lo - y + r;  oy_hi = y_hi - y + r
 
-                    if 0 <= nx < self.grid_size and 0 <= ny < self.grid_size:
-                        # Terrain (blocked/hazard)
-                        obs[0, obs_x, obs_y] = 1.0 if self.grid[nx, ny] in [1, 2] else 0.0
-                        # Discovered tiles
-                        obs[1, obs_x, obs_y] = 1.0 if self.discovered[nx, ny] else 0.0
-                        # Self position
-                        if nx == x and ny == y:
-                            obs[2, obs_x, obs_y] = 1.0
-                        # Other agents
-                        for other, (ox, oy) in self.agent_positions.items():
-                            if other != agent and ox == nx and oy == ny:
-                                obs[3, obs_x, obs_y] = 1.0
-                        # Reward tiles
-                        if self.grid[nx, ny] == 3:
-                            obs[4, obs_x, obs_y] = 1.0
-                        # Map memory (if enabled)
-                        if self.use_map_memory:
-                            obs[5, obs_x, obs_y] = self.agent_memory[agent][nx, ny]
-                    else:
-                        # Out-of-bounds padding
-                        obs[:, obs_x, obs_y] = 0.0
+            window = self.grid[x_lo:x_hi, y_lo:y_hi]
+            obs[0, ox_lo:ox_hi, oy_lo:oy_hi] = (window == 1) | (window == 2)  # terrain
+            obs[1, ox_lo:ox_hi, oy_lo:oy_hi] = self.discovered[x_lo:x_hi, y_lo:y_hi]
+            obs[2, r, r] = 1.0                                                  # self (centre)
+            obs[3, ox_lo:ox_hi, oy_lo:oy_hi] = agent_pos_grid[x_lo:x_hi, y_lo:y_hi]
+            obs[3, r, r] = 0.0                                                  # exclude self
+            obs[4, ox_lo:ox_hi, oy_lo:oy_hi] = (window == 3)                   # reward tiles
+            if self.use_map_memory:
+                obs[5, ox_lo:ox_hi, oy_lo:oy_hi] = self.agent_memory[agent][x_lo:x_hi, y_lo:y_hi]
 
             observations[agent] = obs
 
@@ -383,15 +379,17 @@ class GridWorldEnvironment(ParallelEnv):
     def _place_random_reward(self):
         # Clear existing rewards
         self.grid[self.grid == 3] = 0
-        
+
+        margin = max(2, self.grid_size // 8)  # 15x15→2, 30x30→3, 45x45→5
         valid_positions = []
-        for x in range(4, self.grid_size - 4):
-            for y in range(4, self.grid_size - 4):
+        for x in range(margin, self.grid_size - margin):
+            for y in range(margin, self.grid_size - margin):
                 if self.grid[x, y] == 0:
                     valid_positions.append((x, y))
-        
-        if valid_positions:
-            rx, ry = valid_positions[np.random.randint(len(valid_positions))]
+
+        count = min(getattr(self, "num_rewards", 1), len(valid_positions))
+        chosen = [valid_positions[i] for i in np.random.choice(len(valid_positions), count, replace=False)]
+        for rx, ry in chosen:
             self.grid[rx, ry] = 3
     
     def action_space(self, agent):
@@ -400,104 +398,8 @@ class GridWorldEnvironment(ParallelEnv):
     def observation_space(self, agent):
         return self.observation_spaces[agent]
     
-    # ---------------- Rendering ----------------
-    def render(self):
-        try:
-            if not self.render_enabled:
-                return
-
-            grid_size = self.grid.shape[0]
-            cell_size = 30
-            win_size = grid_size * cell_size
-
-            # Create window once
-            if self.window is None:
-                self.window = GraphWin("GridWorld", win_size, win_size)
-                self.window.setBackground("white")
-
-            # Draw static grid only once per episode
-            if not self.static_drawn:
-                # Clear old tiles if they exist
-                if self.static_tiles:
-                    for row in self.static_tiles:
-                        for img in row:
-                            if img:
-                                try:
-                                    img.undraw()
-                                except:
-                                    pass
-
-                self.static_tiles = [[None for _ in range(grid_size)] for _ in range(grid_size)]
-
-                for i in range(grid_size):
-                    for j in range(grid_size):
-                        center_x = j * cell_size + cell_size / 2
-                        center_y = i * cell_size + cell_size / 2
-
-                        if self.grid[i, j] == 1:
-                            filename = "../Sprites/Tile_Blocked.png"
-                        elif self.grid[i, j] == 2:
-                            filename = "../Sprites/Tile_Fatal.png"
-                        elif self.grid[i, j] == 3:
-                            filename = "../Sprites/Tile_Reward.png"
-                        else:
-                            filename = "../Sprites/Tile_Available.png"
-
-                        img = Image(Point(center_x, center_y), filename)
-                        img.draw(self.window)
-                        self.static_tiles[i][j] = img
-
-                self.static_drawn = True
-
-            # Update discovered tiles
-            for i in range(grid_size):
-                for j in range(grid_size):
-                    if self.discovered[i, j] and self.grid[i, j] == 0:
-                        if self.static_tiles[i][j]:
-                            try:
-                                self.static_tiles[i][j].undraw()
-                            except:
-                                pass
-                            
-                            center_x = j * cell_size + cell_size / 2
-                            center_y = i * cell_size + cell_size / 2
-                            img = Image(Point(center_x, center_y), "../Sprites/Tile_Discovered.png")
-                            img.draw(self.window)
-                            self.static_tiles[i][j] = img
-
-            # Remove old agent drawings
-            for img in self.agent_drawings.values():
-                try:
-                    img.undraw()
-                except:
-                    pass
-            self.agent_drawings = {}
-
-            # Draw agents at current positions
-            for agent, (x, y) in self.agent_positions.items():
-                center_x = y * cell_size + cell_size / 2
-                center_y = x * cell_size + cell_size / 2
-                agent_number = int(agent.split("_")[-1])
-                filename = f"../Sprites/Drone_{agent_number}.png"
-                img = Image(Point(center_x, center_y), filename)
-                img.draw(self.window)
-                self.agent_drawings[agent] = img
-            
-            # Update window to process events and refresh display
-            self.window.update()
-
-        except Exception:
-            pass  # Silently ignore rendering errors
-
     def close(self):
-        try:
-            if self.window is not None:
-                self.window.close()
-        except Exception:
-            pass
-        finally:
-            self.window = None
-            self.static_drawn = False
+        pass
 
     def getNumTilesDiscovered(self):
         return np.sum(self.discovered)
@@ -520,12 +422,12 @@ class GridWorldEnvironment(ParallelEnv):
     
     def getEpisodeAnalysis(self):
         return {
-            "reward_found": 1 if self.reward_found else 0,
-            "steps_taken": self.getStepsTaken(), 
+            "reward_found": self.rewards_collected / self.num_rewards,
+            "steps_taken": self.getStepsTaken(),
             "tiles_discovered": self.getNumTilesDiscovered(),
             "analysis_score": self.getAnalysisScore(),
             "Steps_to_find_reward_if_found": self.getStepsTaken() if self.reward_found else None,
-            "TilesDiscoveredPerStep": self.getNumTilesDiscovered()/self.getStepsTaken() if self.getStepsTaken() > 0 else 0      
+            "TilesDiscoveredPerStep": self.getNumTilesDiscovered()/self.getStepsTaken() if self.getStepsTaken() > 0 else 0
         }
 
 #Testing
@@ -533,7 +435,6 @@ if __name__ == "__main__":
     env = GridWorldEnvironment(
         mapPreset=map_15x15,
         num_drones=4,
-        render_every=50  # render every 50 episodes
     )
 
     parallel_api_test(env)

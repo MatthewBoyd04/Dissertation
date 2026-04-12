@@ -13,8 +13,11 @@ class MultiAgentRolloutBuffer(RolloutBuffer):
     def __init__(self, buffer_size, observation_space, action_space, device="cpu", 
                  gae_lambda=0.95, gamma=0.99, n_envs=1, num_agents=4):
         # Multiply buffer size by num_agents to store all agent transitions
+        # Use the same buffer_size as the parent — standard SB3 collect_rollouts
+        # adds one entry per call, so we need exactly n_steps entries to fill.
+        # (The old * num_agents multiplier was for the now-unused add_multi_agent() path.)
         super().__init__(
-            buffer_size * num_agents,
+            buffer_size,
             observation_space,
             action_space,
             device,
@@ -23,15 +26,29 @@ class MultiAgentRolloutBuffer(RolloutBuffer):
             n_envs
         )
         self.num_agents = num_agents
-        
+        # Track previous done flags so episode_starts is correctly one step ahead
+        self._prev_dones: dict = {}
+
         # Add storage for centralized observations
         single_obs_shape = observation_space.shape
         centralized_obs_shape = (single_obs_shape[0] * num_agents, *single_obs_shape[1:])
+        self._centralized_obs_shape = centralized_obs_shape  # store for reset()
         self.centralized_observations = np.zeros(
-            (self.buffer_size, n_envs, *centralized_obs_shape), 
+            (self.buffer_size, n_envs, *centralized_obs_shape),
             dtype=np.float32
         )
-    
+
+    def reset(self) -> None:
+        """Re-initialise centralized_observations after swap_and_flatten in get()."""
+        super().reset()
+        # _centralized_obs_shape is set after super().__init__() calls reset() during init,
+        # so guard against the first (early) reset call.
+        if hasattr(self, '_centralized_obs_shape'):
+            self.centralized_observations = np.zeros(
+                (self.buffer_size, self.n_envs, *self._centralized_obs_shape),
+                dtype=np.float32
+            )
+
     def add_multi_agent(self, obs_dict, actions_dict, rewards_dict, dones_dict, 
                         values_dict, log_probs_dict, centralized_obs):
         """
@@ -53,11 +70,15 @@ class MultiAgentRolloutBuffer(RolloutBuffer):
             self.observations[self.pos] = np.array(obs_dict[agent]).copy()
             self.actions[self.pos] = np.array(actions_dict[agent]).copy()
             self.rewards[self.pos] = np.array(rewards_dict[agent]).copy()
-            self.episode_starts[self.pos] = np.array(dones_dict.get(agent, False)).copy()
+            # episode_starts[t] should be True when t is the FIRST step of a new episode,
+            # i.e. when the PREVIOUS step ended the episode. Use _prev_dones for this.
+            self.episode_starts[self.pos] = np.array(self._prev_dones.get(agent, False)).copy()
             self.values[self.pos] = values_dict[agent].clone().cpu().numpy().flatten()
             self.log_probs[self.pos] = log_probs_dict[agent].clone().cpu().numpy()
             self.centralized_observations[self.pos] = np.array(centralized_obs).copy()
-            
+            # Store current done as previous for next call
+            self._prev_dones[agent] = bool(dones_dict.get(agent, False))
+
             self.pos += 1
             if self.pos == self.buffer_size:
                 self.full = True
