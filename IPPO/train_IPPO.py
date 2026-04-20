@@ -8,7 +8,7 @@ from single_agent_wrapper import SingleAgentWrapper
 from Environment import GridWorldEnvironment
 import torch
 import random
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor
 from LoggerConfig import log
 from Maps import map_15x15, map_30x30, map_45x45
 
@@ -29,6 +29,7 @@ ippo_dir = os.path.dirname(os.path.abspath(__file__))
 
 def trainSingleAgent(agent, total_timesteps, num_drones, cumulativeTimestepsSoFar=0, total_training_timesteps=10_000_000, use_frozen_agents=True, vision_range=3):
     """Train a single agent - used for parallel training"""
+    torch.set_num_threads(1)  # prevent intra-op thread contention across worker processes
     # Randomize map for each training session
     map_choice = getMapChoice("cirriculum_Random", cumulativeTimestepsSoFar, total_training_timesteps)  # Change to "random" for random map selection each time
     
@@ -116,7 +117,7 @@ def trainAgents(total_timesteps, num_drones=4, parallel=True, cumulativeTimestep
     if parallel:
         """Train all agents in parallel using threads"""
         max_workers = min(num_drones, 8)  # Limit workers
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures = [executor.submit(trainSingleAgent, agent, total_timesteps, num_drones, cumulativeTimestepsSoFar, total_training_timesteps, use_frozen_agents, vision_range) for agent in agents]
             # Wait for all to complete
             for future in futures:

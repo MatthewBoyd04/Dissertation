@@ -2,7 +2,7 @@
   "algorithm": "ippo_live",
   "num_drones": 8,
   "vision_range": 3,
-  "map_mode": "safe",
+  "map_mode": "unsafe",
   "render_every": null,
   "sim_render_every": 0,
   "reward_weights": {

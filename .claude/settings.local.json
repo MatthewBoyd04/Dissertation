@@ -11,7 +11,19 @@
       "Read(//f/University/Work/Dissertation/**)",
       "Bash(python)",
       "Bash(grep -n \"ThreadPoolExecutor\\\\|ProcessPoolExecutor\\\\|multiprocessing\\\\|GIL\\\\|CPU-bound\" \"/f/University/Work/Dissertation/Py + Gymnasium simulation/IPPO\"/*.py)",
-      "Bash(wc -l \"/f/University/Work/Dissertation/Py + Gymnasium simulation/IPPO\"/*.py)"
+      "Bash(wc -l \"/f/University/Work/Dissertation/Py + Gymnasium simulation/IPPO\"/*.py)",
+      "Bash(python3 -c \"import stable_baselines3; import inspect; from stable_baselines3.common.buffers import RolloutBuffer; print\\(inspect.getsourcefile\\(RolloutBuffer\\)\\)\")",
+      "Bash(python -c \"import stable_baselines3; import inspect; from stable_baselines3.common.buffers import RolloutBuffer; src = inspect.getsource\\(RolloutBuffer.compute_returns_and_advantage\\); print\\(src\\)\")",
+      "Bash(python -c \"import stable_baselines3; import inspect; from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm; src = inspect.getsource\\(OnPolicyAlgorithm.collect_rollouts\\); print\\(src\\)\")",
+      "Bash(python -c \"import sys; print\\(sys.executable\\); import matplotlib; print\\('matplotlib ok'\\); import pandas; print\\('pandas ok'\\)\")",
+      "Bash(python -c \"import sys; print\\(sys.executable\\)\")",
+      "Bash(C:\\\\Users\\\\chunk\\\\miniconda3\\\\python.exe -c \"import matplotlib\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(\"/c/Users/chunk/miniconda3/python.exe\" -c \"import matplotlib; print\\('ok'\\)\")",
+      "Bash(\"/c/Users/chunk/miniconda3/python.exe\" -c \"import stable_baselines3; print\\('sb3 ok'\\)\")",
+      "Bash(\"/c/Users/chunk/miniconda3/python.exe\" -c \"import pettingzoo; print\\('pz ok'\\)\")",
+      "Bash(python -W ignore -c ':*)",
+      "Bash(\"C:/Python313/python.exe\" -c \"import pandas; import matplotlib; print\\('OK:', pandas.__version__, matplotlib.__version__\\)\")"
     ]
   }
 }

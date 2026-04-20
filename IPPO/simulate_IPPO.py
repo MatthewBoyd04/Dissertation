@@ -144,8 +144,10 @@ def runSimulations(simulations = 100, timeStepsRan = 0, num_drones=4, vision_ran
         avg_steps = sum([a['steps_taken'] for a in analysisList])/len(analysisList)
         avg_tiles = sum([a['tiles_discovered'] for a in analysisList])/len(analysisList)
         avg_tiles_per_step = sum([a['TilesDiscoveredPerStep'] for a in analysisList])/len(analysisList)
-        reward_found_list = [a for a in analysisList if a['reward_found'] > 0]
-        avg_steps_to_reward = sum([a['Steps_to_find_reward_if_found'] for a in reward_found_list])/len(reward_found_list) if reward_found_list else 0
+        reward_found_list = [a for a in analysisList if a['reward_found'] >= 1.0]
+        steps_list = [a['Steps_to_find_reward_if_found'] for a in reward_found_list
+                      if a['Steps_to_find_reward_if_found'] is not None]
+        avg_steps_to_reward = sum(steps_list) / len(steps_list) if steps_list else 0
         has_hazards = analysisList[0]['has_hazards']
 
         log.i(f"% of rewards discovered: {reward_found_pct:.2%}")

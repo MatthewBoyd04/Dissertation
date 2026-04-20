@@ -6,32 +6,47 @@ import numpy as np
 
 
 class CentralizedCritic(nn.Module):
-    """Centralized critic that sees all agents' observations"""
-    def __init__(self, observation_space, num_agents, features_dim=64):
+    """Centralized critic with per-agent CNN encoder + shared MLP.
+    Each agent's (C, H, W) observation slice is processed by a shared CNN encoder.
+    The resulting feature vectors are concatenated and fed into an MLP value head.
+    This preserves the 2D spatial structure of each agent's observation."""
+    def __init__(self, observation_space, num_agents, features_dim=128):
         super().__init__()
         self.num_agents = num_agents
-        
-        # Calculate input size: all agents' observations concatenated
-        single_obs_shape = observation_space.shape
-        total_obs_size = int(np.prod(single_obs_shape)) * num_agents
-        
-        self.critic_net = nn.Sequential(
+        C, H, W = observation_space.shape  # e.g. (6, 7, 7) with vision_range=3
+        self._C = C
+        self._H = H
+        self._W = W
+
+        # Shared CNN encoder — same weights applied independently to each agent's obs slice
+        self.agent_encoder = nn.Sequential(
+            nn.Conv2d(C, 32, kernel_size=3, padding=1), nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1), nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(total_obs_size, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128),
-            nn.ReLU(),
+            nn.Linear(64 * H * W, features_dim), nn.ReLU()
+        )
+
+        # MLP value head — receives concatenated features from all agents
+        self.value_head = nn.Sequential(
+            nn.Linear(features_dim * num_agents, 256), nn.ReLU(),
+            nn.Linear(256, 128), nn.ReLU(),
             nn.Linear(128, 1)
         )
-    
+
     def forward(self, centralized_obs):
         """
         Args:
-            centralized_obs: Concatenated observations from all agents
+            centralized_obs: (batch, C * num_agents, H, W) — all agents' obs concatenated
         Returns:
-            value: Centralized value estimate
+            value: (batch, 1) centralized value estimate
         """
-        return self.critic_net(centralized_obs)
+        batch = centralized_obs.shape[0]
+        C, H, W = self._C, self._H, self._W
+        # Split into per-agent slices and encode with shared CNN
+        agent_slices = centralized_obs.view(batch * self.num_agents, C, H, W)
+        agent_features = self.agent_encoder(agent_slices)          # (batch*N, features_dim)
+        joint_features = agent_features.view(batch, -1)            # (batch, features_dim*N)
+        return self.value_head(joint_features)
 
 
 class MAPPOPolicy(ActorCriticPolicy):

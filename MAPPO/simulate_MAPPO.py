@@ -87,11 +87,18 @@ def _run_episode(model_path, vecnorm_path, map_data, maxCycles, num_drones, visi
         }]
         step_num = 0
 
+    num_possible_agents = len(base_env.possible_agents)
     step_counter = 0
     while base_env.agents:
         actions = {}
         for agent in base_env.agents:
-            obs = obs_dict[agent]
+            raw_obs = obs_dict[agent]
+            # Append agent identity channel to match the expanded training observation space
+            agent_idx = base_env.possible_agents.index(agent)
+            id_val = agent_idx / max(num_possible_agents - 1, 1)
+            H, W = raw_obs.shape[1], raw_obs.shape[2]
+            id_channel = np.full((1, H, W), id_val, dtype=np.float32)
+            obs = np.concatenate([raw_obs, id_channel], axis=0)
             if obs_rms is not None:
                 obs = (obs - obs_rms.mean) / np.sqrt(obs_rms.var + eps)
                 obs = np.clip(obs, -clip_obs, clip_obs)
@@ -128,7 +135,7 @@ def _run_episode(model_path, vecnorm_path, map_data, maxCycles, num_drones, visi
         'steps_taken': step_counter,
         'tiles_discovered': base_env.getNumTilesDiscovered(),
         'analysis_score': 50 * int(base_env.reward_found) - step_counter + 0.1 * base_env.getNumTilesDiscovered(),
-        'Steps_to_find_reward_if_found': step_counter if base_env.reward_found else None,
+        'Steps_to_find_reward_if_found': base_env.reward_all_found_step,
         'TilesDiscoveredPerStep': base_env.getNumTilesDiscovered() / step_counter if step_counter > 0 else 0,
         'hazard_terminations': base_env.hazard_terminations,
         'has_hazards': base_env.has_hazards,
@@ -175,8 +182,10 @@ def runSimulations(simulations = 100, timeStepsRan = 0, num_drones=4, force_map=
         avg_steps = sum([a['steps_taken'] for a in analysisList])/len(analysisList)
         avg_tiles = sum([a['tiles_discovered'] for a in analysisList])/len(analysisList)
         avg_tiles_per_step = sum([a['TilesDiscoveredPerStep'] for a in analysisList])/len(analysisList)
-        reward_found_list = [a for a in analysisList if a['reward_found'] > 0]
-        avg_steps_to_reward = sum([a['Steps_to_find_reward_if_found'] for a in reward_found_list])/len(reward_found_list) if reward_found_list else 0
+        reward_found_list = [a for a in analysisList if a['reward_found'] >= 1.0]
+        steps_list = [a['Steps_to_find_reward_if_found'] for a in reward_found_list
+                      if a['Steps_to_find_reward_if_found'] is not None]
+        avg_steps_to_reward = sum(steps_list) / len(steps_list) if steps_list else 0
         has_hazards = analysisList[0]['has_hazards']
 
         log.i(f"% of rewards discovered: {reward_found_pct:.2%}")

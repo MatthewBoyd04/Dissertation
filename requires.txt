@@ -4,3 +4,4 @@ matplotlib
 pettingzoo
 torch
 stable_baselines3
+psutil

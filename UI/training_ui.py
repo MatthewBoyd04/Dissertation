@@ -16,8 +16,13 @@ try:
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
     from matplotlib.figure import Figure
     _PLOTS_AVAILABLE = True
-except ImportError:
+except Exception as _plot_err:
     _PLOTS_AVAILABLE = False
+    # Write the real error and interpreter path to a log file so it is visible
+    import traceback
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "plot_import_error.log"), "w") as _f:
+        _f.write(f"interpreter: {sys.executable}\n")
+        _f.write(traceback.format_exc())
 
 # Renderer lives one level up (repo root), next to UI/
 _UI_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -53,27 +58,19 @@ IPPO_DEFAULT_WEIGHTS = {
     "approachReward": 5.0,
 }
 MAPPO_DEFAULT_WEIGHTS = {
-    "tileDiscovered":    1.0,
-    "rewardFound":       150.0,
-    "HazardHit":         -200.0,
-    "Steps":             -0.1,
-    "approachReward":    5.0,
-    "individualDiscovery": 4.0,
-    "explorationBonus":    0.5,
-    "spacingBonus":        0.5,
-    "noveltyBonus":        2.0,
+    "tileDiscovered": 0.5,
+    "rewardFound":    200.0,
+    "HazardHit":      -100.0,
+    "Steps":          -0.1,
+    "approachReward": 5.0,
 }
-MAPPO_ONLY_KEYS = {"individualDiscovery", "explorationBonus", "spacingBonus", "noveltyBonus"}
+MAPPO_ONLY_KEYS = set()  # No MAPPO-specific reward keys — both algorithms use identical weights
 WEIGHT_LABELS = {
-    "tileDiscovered":      "Tile Discovered",
-    "rewardFound":         "Reward Found",
-    "HazardHit":           "Hazard Hit",
-    "Steps":               "Step Cost",
-    "approachReward":      "Approach Reward",
-    "individualDiscovery": "Individual Discovery  (MAPPO)",
-    "explorationBonus":    "Exploration Bonus     (MAPPO)",
-    "spacingBonus":        "Spacing Bonus         (MAPPO)",
-    "noveltyBonus":        "Novelty Bonus         (MAPPO)",
+    "tileDiscovered": "Tile Discovered",
+    "rewardFound":    "Reward Found",
+    "HazardHit":      "Hazard Hit",
+    "Steps":          "Step Cost",
+    "approachReward": "Approach Reward",
 }
 
 # ── Plot spec: (column, colour, y-label) ──────────────────────────────────────

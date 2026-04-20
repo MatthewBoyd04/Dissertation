@@ -50,6 +50,7 @@ class GridWorldEnvironment(ParallelEnv):
         #Analysis Variables
         self.reward_found = False
         self.rewards_collected = 0
+        self.reward_all_found_step = None
         self.hazard_terminations = 0
         self.has_hazards = bool(np.any(self.grid == 2))
 
@@ -114,6 +115,7 @@ class GridWorldEnvironment(ParallelEnv):
         #Analysis Variables:
         self.reward_found = False
         self.rewards_collected = 0
+        self.reward_all_found_step = None
         self.hazard_terminations = 0
         self.prev_reward_dists = {agent: None for agent in self.possible_agents}
 
@@ -196,6 +198,8 @@ class GridWorldEnvironment(ParallelEnv):
                 self.grid[x, y] = 0
                 self.reward_found = True
                 self.rewards_collected += 1
+                if self.rewards_collected >= self.num_rewards:
+                    self.reward_all_found_step = self.getStepsTaken()
                 log.i(f"{agent} collected reward at ({x}, {y})")
 
         # Hazard penalty
@@ -368,7 +372,7 @@ class GridWorldEnvironment(ParallelEnv):
             "steps_taken": self.getStepsTaken(),
             "tiles_discovered": self.getNumTilesDiscovered(),
             "analysis_score": self.getAnalysisScore(),
-            "Steps_to_find_reward_if_found": self.getStepsTaken() if self.reward_found else None,
+            "Steps_to_find_reward_if_found": self.reward_all_found_step,
             "TilesDiscoveredPerStep": self.getNumTilesDiscovered()/self.getStepsTaken() if self.getStepsTaken() > 0 else 0,
             "hazard_terminations": self.hazard_terminations,
             "has_hazards": self.has_hazards,

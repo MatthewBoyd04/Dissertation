@@ -7,6 +7,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/UI/training_ui.py",
             "console": "integratedTerminal",
+            "python": "C:\\Python313\\python.exe",
             "cwd": "${workspaceFolder}"
         },
         {
@@ -15,6 +16,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/IPPO/Main_IPPO.py",
             "console": "externalTerminal",
+            "python": "C:\\Python313\\python.exe",
             "cwd": "${workspaceFolder}"
         },
         {
@@ -23,6 +25,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/MAPPO/Main_MAPPO.py",
             "console": "externalTerminal",
+            "python": "C:\\Python313\\python.exe",
             "cwd": "${workspaceFolder}"
         },
         {

@@ -53,7 +53,7 @@ if __name__ == '__main__':
         # Train
         trainAgents(
             timesteps_per_iteration,
-            parallel=False,
+            parallel=True,
             num_drones=num_drones,
             cumulativeTimestepsSoFar=total_timesteps_so_far,
             use_frozen_agents=use_frozen_agents,

@@ -49,6 +49,13 @@ class MultiAgentRolloutBuffer(RolloutBuffer):
                 dtype=np.float32
             )
 
+    def add(self, obs, action, reward, episode_start, value, log_prob, centralized_obs=None):
+        """Add a transition, optionally storing centralized observations for the critic."""
+        super().add(obs, action, reward, episode_start, value, log_prob)
+        if centralized_obs is not None:
+            pos = self.pos - 1  # super().add() already incremented pos
+            self.centralized_observations[pos] = centralized_obs
+
     def add_multi_agent(self, obs_dict, actions_dict, rewards_dict, dones_dict, 
                         values_dict, log_probs_dict, centralized_obs):
         """
