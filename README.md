@@ -1,3 +1,1 @@
-** TO DO:
-- ADD VIDEO OF SIMULATION RUNNING
-- REMOVE OLD FILES (ARCHIVE etc)
+<video src="docs/video.mp4" controls width="700"></video>
