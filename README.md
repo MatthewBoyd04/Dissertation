@@ -1,1 +1,1 @@
-<video src="docs/video.mp4" controls width="700"></video>
+<video src="Docs/Example Video.mp4" controls width="700"></video>
