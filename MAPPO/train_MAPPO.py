@@ -28,9 +28,6 @@ else:
 mappo_dir = os.path.dirname(os.path.abspath(__file__))
 
 class MultiAgentWrapper(gym.Env):
-    """Wrapper that trains one fixed agent per env instance using the shared policy.
-    Each env is assigned to one specific drone (agent_idx). All co-agents act using
-    the shared policy. This gives correct per-agent temporal sequences for GAE."""
     def __init__(self, base_env, agent_idx=0):
         super().__init__()
         self.env = base_env
@@ -66,7 +63,6 @@ class MultiAgentWrapper(gym.Env):
         return self._add_agent_id(raw_obs, self.agent_idx), {}
 
     def _add_agent_id(self, obs, agent_idx):
-        """Append a channel filled with the agent's normalised index (0 → 1)."""
         _, H, W = obs.shape
         id_val = agent_idx / max(self._num_agents - 1, 1)
         id_channel = np.full((1, H, W), id_val, dtype=np.float32)
@@ -122,8 +118,6 @@ class MultiAgentWrapper(gym.Env):
         return obs, reward, done, False, infos
 
     def get_centralized_obs(self):
-        """Return centralized obs: all agents' obs normalized and concatenated on channel axis.
-        Called via env_method from the main process during collect_rollouts."""
         _, H, W = self.observation_space.shape
         all_obs = [
             self._normalize_obs(
@@ -137,16 +131,13 @@ class MultiAgentWrapper(gym.Env):
         return np.concatenate(all_obs, axis=0)  # (C+1) * num_agents, H, W
     
     def set_policy(self, policy):
-        """Store policy object for co-agent inference. Called via env_method from main process."""
         self._policy = policy
 
     def update_policy_weights(self, cpu_state_dict):
-        """Load fresh policy weights shipped from the main process after each PPO update."""
         if self._policy is not None:
             self._policy.load_state_dict(cpu_state_dict)
 
     def set_obs_stats(self, mean, var, epsilon, clip_obs):
-        """Store obs-normalisation stats as plain numpy/float values (pickle-safe)."""
         self._obs_mean = mean
         self._obs_var  = var
         self._obs_eps  = epsilon
@@ -179,7 +170,7 @@ class MAPPOWrapper(gym.Env):
         self._model = None
 
     def _add_agent_id(self, obs, agent_idx):
-        """Append a channel filled with the agent's normalised index (0 → 1)."""
+
         _, H, W = obs.shape
         id_val = agent_idx / max(self._num_agents - 1, 1)
         id_channel = np.full((1, H, W), id_val, dtype=np.float32)
@@ -226,8 +217,6 @@ class MAPPOWrapper(gym.Env):
         self._model = model
 
 class CentralizedObsCallback(BaseCallback):
-    """Injects centralized observations (from infos) into the rollout buffer at each step.
-    Required for CTDE: the centralized critic sees all agents' obs during training."""
 
     def _on_step(self) -> bool:
         if not hasattr(self.model.rollout_buffer, 'centralized_observations'):
@@ -256,8 +245,6 @@ class MAPPOPPO(PPO):
         super().__init__(policy, env, **kwargs)
 
     def _setup_model(self) -> None:
-        # SB3's load() updates __dict__ with kwargs BEFORE calling _setup_model(),
-        # so 'num_agents' may have been injected as a plain dict key rather than _num_agents.
         if hasattr(self, 'num_agents'):
             self._num_agents = self.num_agents
         super()._setup_model()
@@ -274,12 +261,7 @@ class MAPPOPPO(PPO):
         )
 
     def collect_rollouts(self, env, callback, rollout_buffer, n_rollout_steps):
-        """Override to use the centralized critic for value estimation.
 
-        Centralized obs are piggybacked on each env.step() infos response, so there
-        is only ONE extra env_method round-trip per rollout (to initialise _last_c_obs)
-        rather than one per step.
-        """
         assert self._last_obs is not None, "No previous observation was provided"
         self.policy.set_training_mode(False)
         n_steps = 0
@@ -327,17 +309,12 @@ class MAPPOPPO(PPO):
             self._last_obs = new_obs
             self._last_episode_starts = dones
 
-            # Pull post-step centralized obs from infos — no extra IPC round-trip.
-            # For done envs the c_obs is the terminal state; episode_starts=True on the
-            # next step zeros the GAE bootstrap across that boundary, so the small bias
-            # from using terminal rather than reset c_obs only affects the first delta of
-            # the new episode and is negligible compared to the IPC savings.
             self._last_c_obs = np.stack([
                 info.get('centralized_obs', np.zeros_like(self._last_c_obs[i]))
                 for i, info in enumerate(infos)
             ]).astype(np.float32)
 
-        # Bootstrap from the post-step joint obs already cached — no extra env_method call
+
         with torch.no_grad():
             c_obs_tensor = torch.as_tensor(self._last_c_obs, device=self.device)
             last_values = self.policy.centralized_critic(c_obs_tensor).flatten()
@@ -453,7 +430,7 @@ class SubprocSyncCallback(BaseCallback):
 
     def __init__(self, subproc_env):
         super().__init__()
-        self._subproc_env = subproc_env  # the raw SubprocVecEnv (under VecNormalize)
+        self._subproc_env = subproc_env  # the raw SubprocVecEnv 
         self._first = True
 
     def _on_step(self) -> bool:
@@ -464,10 +441,9 @@ class SubprocSyncCallback(BaseCallback):
         if self._first:
             self._first = False
             return True
-        # Ship CPU state dict (pickle-safe, works through inter-process pipes)
         sd = {k: v.cpu() for k, v in self.model.policy.state_dict().items()}
         self._subproc_env.env_method('update_policy_weights', sd)
-        # Keep obs-normalisation stats current (VecNormalize updates them continuously)
+        # Keep obs-normalisation stats current 
         vn = self.training_env
         self._subproc_env.env_method(
             'set_obs_stats',
@@ -479,12 +455,12 @@ class SubprocSyncCallback(BaseCallback):
 
 def trainAgents(total_timesteps, num_drones=4, cumulativeTimestepsSoFar=0, total_training_timesteps=50_000_000, force_map=None, vision_range=3):
     """Train shared MAPPO policy"""
-    # ── Thread budget ───────────────────────────────────────────────────────────
+    # Thread budget 
     # Reserve ~5 physical cores (10 threads) for system/gaming. Each worker
     # subprocess is capped at 1 thread (set inside make_env._init).
     torch.set_num_threads(14)
 
-    # ── Process priority ────────────────────────────────────────────────────────
+    # Process priority 
     # Yield CPU to games/browser when they need it; no-op when PC is idle.
     try:
         import psutil
@@ -515,22 +491,21 @@ def trainAgents(total_timesteps, num_drones=4, cumulativeTimestepsSoFar=0, total
     model_path = os.path.join(mappo_dir, "shared_mappo_model.zip")
     vecnorm_path = os.path.join(mappo_dir, "vecnormalize.pkl")
     
-    # FIX 2: Keep VecNormalize updating throughout training + normalize obs only
+    # Keep VecNormalize updating throughout training + normalize obs only
     if os.path.exists(vecnorm_path):
         env = VecNormalize.load(vecnorm_path, env)
         env.training = True  # FIXED: Keep training throughout to adapt to distribution shifts
         log.i("Loaded VecNormalize (training=True - adapts throughout training)")
     else:
-        # FIXED: norm_reward=False to preserve carefully tuned reward weights
+        #norm_reward=False to preserve carefully tuned reward weights
         env = VecNormalize(env, norm_obs=True, norm_reward=False, clip_obs=10.0)
         log.i("Created VecNormalize (obs only - preserves reward shaping)")
     
     # Decaying LR schedule: SB3 evaluates this callable each optimizer step, passing
     # progress_remaining (1.0 → 0.0), giving 3e-4 → 3e-5 decay within each session.
-    # Identical schedule to IPPO for a fair hyperparameter comparison.
     current_lr = lambda p: 3e-4 * max(0.1, p)
     
-    # FIX 3: Entropy decay callback to gradually reduce exploration
+    # Entropy decay callback to gradually reduce exploration
     class EntropyDecayCallback(BaseCallback):
         def __init__(self, initial_ent=0.1, final_ent=0.03, cumulative_steps_so_far=0, total_training_steps=10_000_000):
             super().__init__()
@@ -551,7 +526,7 @@ def trainAgents(total_timesteps, num_drones=4, cumulativeTimestepsSoFar=0, total
                 self.last_log = self.num_timesteps
             return True
     
-    # FIX 5 & 8: Diagnostics callback to monitor training
+#Diagnostics callback to monitor training
     class DiagnosticsCallback(BaseCallback):
         def __init__(self):
             super().__init__()
@@ -613,8 +588,6 @@ def trainAgents(total_timesteps, num_drones=4, cumulativeTimestepsSoFar=0, total
             device=device
         )
 
-    # Ship policy + obs stats to each worker subprocess via env_method (pickle-safe).
-    # env_method works through the VecNormalize wrapper transparently.
     env.env_method('set_policy', model.policy)
     env.env_method(
         'set_obs_stats',
@@ -648,11 +621,11 @@ def getMapChoice(selectionMethod, total_timesteps_so_far, total_training_timeste
     if selectionMethod == "random":
         return random.choice([map_15x15, map_30x30, map_45x45])
     elif selectionMethod == "cirriculum":
-        if progress < 0.01:    # First 1%: pure 15x15
+        if progress < 0.01:    
             return map_15x15
-        elif progress < 0.10:  # 1-10%: pure 30x30
+        elif progress < 0.10:  
             return map_30x30
-        else:                  # 10%+: pure 45x45
+        else:                  
             return map_45x45
     elif selectionMethod == "cirriculum_Random":
         # Absolute-timestep milestones (consistent across IPPO and MAPPO)

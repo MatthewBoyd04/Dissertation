@@ -47,6 +47,9 @@ class GridWorldEnvironment(ParallelEnv):
         
         log.d("Unique grid values:" + str(np.unique(self.grid)))
 
+        #Agent Variables
+        self.num_drones = max(1, min(num_drones, 8))  # Clamp between 1-8
+
         #Analysis Variables
         self.reward_found = False
         self.rewards_collected = 0
@@ -64,12 +67,9 @@ class GridWorldEnvironment(ParallelEnv):
             for k, v in _cfg.get("reward_weights", {}).items():
                 if k in self.rewardWeight:
                     self.rewardWeight[k] = v
-            self.num_rewards = 3 if _cfg.get("map_mode") == "multiple_rewards" else 1
+            self.num_rewards = self.num_drones if _cfg.get("map_mode") == "multiple_rewards" else 1
         else:
             self.num_rewards = 1
-
-        #Agent Variables
-        self.num_drones = max(1, min(num_drones, 8))  # Clamp between 1-8
         self.possible_agents = [f"Drone_{i+1}" for i in range(self.num_drones)]
         self.agents = self.possible_agents[:]
         self.agent_positions = {} #Will be populated in the reset function, key is agent name, value is (x,y) position on the grid.

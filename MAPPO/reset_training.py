@@ -38,7 +38,7 @@ if os.path.exists(tensorboard_dir):
     new_archive = os.path.join(archive_dir, f"run_{existing + 1}")
     
     shutil.move(tensorboard_dir, new_archive)
-    print(f"✓ Archived tensorboard logs to: {new_archive}")
+    print(f" Archived tensorboard logs to: {new_archive}")
 
 print("-" * 50)
 print("Reset complete! Ready for fresh training.")

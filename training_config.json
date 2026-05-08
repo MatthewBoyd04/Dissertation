@@ -1,10 +1,10 @@
 {
-  "algorithm": "ippo_live",
+  "algorithm": "mappo",
   "num_drones": 8,
   "vision_range": 3,
-  "map_mode": "unsafe",
+  "map_mode": "multiple_rewards",
   "render_every": null,
-  "sim_render_every": 0,
+  "sim_render_every": 10,
   "reward_weights": {
     "tileDiscovered": 0.5,
     "rewardFound": 200.0,

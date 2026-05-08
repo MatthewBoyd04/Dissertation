@@ -13,7 +13,7 @@ import time
 if __name__ == '__main__':
     # TRAINING CONFIGURATION
     timesteps_per_iteration = 50_000
-    total_iterations = 200
+    total_iterations = 202
     num_drones = 8
     vision_range = 3
     force_specific_map = None  # Set to map_15x15, map_30x30, map_45x45, or None for curriculum

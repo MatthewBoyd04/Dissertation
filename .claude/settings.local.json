@@ -23,7 +23,8 @@
       "Bash(\"/c/Users/chunk/miniconda3/python.exe\" -c \"import stable_baselines3; print\\('sb3 ok'\\)\")",
       "Bash(\"/c/Users/chunk/miniconda3/python.exe\" -c \"import pettingzoo; print\\('pz ok'\\)\")",
       "Bash(python -W ignore -c ':*)",
-      "Bash(\"C:/Python313/python.exe\" -c \"import pandas; import matplotlib; print\\('OK:', pandas.__version__, matplotlib.__version__\\)\")"
+      "Bash(\"C:/Python313/python.exe\" -c \"import pandas; import matplotlib; print\\('OK:', pandas.__version__, matplotlib.__version__\\)\")",
+      "Bash(grep -E \"\\\\.\\(py|json\\)$\")"
     ]
   }
 }
