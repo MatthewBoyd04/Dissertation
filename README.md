@@ -1,1 +1,1 @@
-[![Demo](https://img.youtube.com/vi/SSH4LGcV_rM/0.jpg)]((https://youtu.be/SSH4LGcV_rM))
+[![Watch the demo](https://img.youtube.com/vi/SSH4LGcV_rM/maxresdefault.jpg)](https://youtu.be/SSH4LGcV_rM)
